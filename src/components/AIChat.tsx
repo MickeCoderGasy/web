@@ -1,9 +1,16 @@
 import { useState, useRef, useEffect } from "react";
+import "@/styles/chat.css";
 import llmService, { StockAnalysisResponse } from "@/services/llmService";
-import { Send, Bot, User, Sparkles, TrendingUp, AlertTriangle } from "lucide-react";
+import grokService from "@/services/grokService";
+import { ChatHeader } from "@/components/ChatHeader";
+import { ChatSessionsManager } from "@/components/ChatSessionsManager";
+import { ContextSettings, defaultContextSettings } from "@/config/grok-config";
+import { ParsedContent, StreamingParsedContent } from "@/components/ParsedContent";
+import chatHistoryService, { ChatMessage, ChatSession } from "@/services/chatHistoryService";
+import { Send, Bot, User, TrendingUp, AlertTriangle, History, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -29,8 +36,74 @@ export function AIChat() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState<{ [key: string]: boolean }>({});
+  const [contextSettings, setContextSettings] = useState<ContextSettings>(defaultContextSettings);
+  const [useGrok, setUseGrok] = useState(true);
+  const [streamingResponse, setStreamingResponse] = useState("");
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  // Vérifier si Grok est configuré
+  const isGrokConfigured = () => {
+    const config = grokService.getConfig();
+    return !!config.apiKey;
+  };
+
+  // Créer une nouvelle session
+  const createNewSession = () => {
+    const title = "Nouvelle conversation";
+    const session = chatHistoryService.createChatSession(
+      title,
+      contextSettings.selectedAnalysisId || undefined,
+      useGrok ? 'grok' : 'standard'
+    );
+    setCurrentSessionId(session.id);
+    setMessages(initialMessages);
+    setShowHistory(false);
+    toast({
+      title: "Nouvelle session",
+      description: "Une nouvelle conversation a été créée",
+    });
+  };
+
+  // Charger une session existante
+  const loadSession = (sessionId: string) => {
+    const session = chatHistoryService.getChatSession(sessionId);
+    if (session) {
+      setCurrentSessionId(sessionId);
+      setMessages(session.messages.map(msg => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        analysis: undefined // On ne stocke pas les analyses dans l'historique
+      })));
+      setUseGrok(session.model === 'grok');
+      if (session.contextAnalysisId) {
+        setContextSettings(prev => ({
+          ...prev,
+          selectedAnalysisId: session.contextAnalysisId
+        }));
+      }
+      setShowHistory(false);
+      toast({
+        title: "Session chargée",
+        description: `Conversation "${session.title}" restaurée`,
+      });
+    }
+  };
+
+  // Sauvegarder un message dans la session actuelle
+  const saveMessageToHistory = (message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
+    if (currentSessionId) {
+      const savedMessage = chatHistoryService.addMessageToSession(currentSessionId, message);
+      if (savedMessage && message.role === 'user' && messages.length === 1) {
+        // Mettre à jour le titre avec le premier message utilisateur
+        const autoTitle = chatHistoryService.generateAutoTitle(message.content);
+        chatHistoryService.updateSessionTitle(currentSessionId, autoTitle);
+      }
+    }
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -49,25 +122,73 @@ export function AIChat() {
 
     const userInput = input.trim();
     setMessages((prev) => [...prev, userMessage]);
+    
+    // Sauvegarder le message utilisateur
+    saveMessageToHistory({
+      role: 'user',
+      content: userInput,
+      model: useGrok ? 'grok' : 'standard'
+    });
+    
     setInput("");
     setIsLoading(true);
+    setStreamingResponse("");
 
     try {
-      // Check if input looks like a stock symbol (short, uppercase-like)
-      const isStockSymbol = /^[A-Za-z]{1,5}(\/[A-Za-z]{3})?$/.test(userInput);
-      
-      if (isStockSymbol) {
-        // Analyze stock
-        const analysis = await llmService.analyzeStock(userInput);
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: `Voici mon analyse pour **${analysis.symbol}**:`,
-          analysis: analysis,
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
+      if (useGrok) {
+        // Utiliser Grok avec contexte
+        // Préparer l'historique de conversation pour Grok
+        const conversationHistory = messages
+          .filter(msg => msg.role !== 'assistant' || !msg.analysis) // Exclure les messages avec analyses
+          .map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }));
+
+        const response = await grokService.sendMessageStream(
+          userInput,
+          (chunk) => {
+            setStreamingResponse(prev => prev + chunk);
+          },
+          conversationHistory
+        );
+
+               const assistantMessage: Message = {
+                 id: (Date.now() + 1).toString(),
+                 role: "assistant",
+                 content: response,
+               };
+               setMessages((prev) => [...prev, assistantMessage]);
+               
+               // Sauvegarder la réponse de l'assistant
+               saveMessageToHistory({
+                 role: 'assistant',
+                 content: response,
+                 model: 'grok'
+               });
+               
+               setStreamingResponse("");
       } else {
-        // General chat
+        // Utiliser l'ancien service LLM
+        const isStockSymbol = /^[A-Za-z]{1,5}(\/[A-Za-z]{3})?$/.test(userInput);
+        
+        if (isStockSymbol) {
+          const analysis = await llmService.analyzeStock(userInput);
+                 const assistantMessage: Message = {
+                   id: (Date.now() + 1).toString(),
+                   role: "assistant",
+                   content: `Voici mon analyse pour **${analysis.symbol}**:`,
+                   analysis: analysis,
+                 };
+                 setMessages((prev) => [...prev, assistantMessage]);
+                 
+                 // Sauvegarder la réponse de l'assistant
+                 saveMessageToHistory({
+                   role: 'assistant',
+                   content: `Voici mon analyse pour **${analysis.symbol}**:`,
+                   model: 'standard'
+                 });
+      } else {
         const response = await llmService.chat(userInput);
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -75,6 +196,14 @@ export function AIChat() {
           content: response,
         };
         setMessages((prev) => [...prev, assistantMessage]);
+        
+        // Sauvegarder la réponse de l'assistant
+        saveMessageToHistory({
+          role: 'assistant',
+          content: response,
+          model: 'standard'
+        });
+        }
       }
     } catch (error: any) {
       console.error('Chat error:', error);
@@ -92,6 +221,7 @@ export function AIChat() {
       });
     } finally {
       setIsLoading(false);
+      setStreamingResponse("");
     }
   };
 
@@ -103,25 +233,56 @@ export function AIChat() {
   };
 
   return (
-    <Card className="glass-card border-primary/10 flex flex-col h-[calc(100vh-12rem)] max-h-[800px]">
-      <div className="p-4 border-b border-border/50 bg-secondary/20">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-lg">AI Trading Assistant</h2>
-            <p className="text-xs text-muted-foreground">Powered by advanced AI</p>
-          </div>
-        </div>
-      </div>
+    <div className="flex flex-col chat-fullscreen bg-background rounded-lg border border-border/50 overflow-hidden">
+      {/* En-tête du chat */}
+      <ChatHeader
+        useGrok={useGrok}
+        onToggleModel={setUseGrok}
+        isGrokConfigured={isGrokConfigured()}
+        settings={contextSettings}
+        onSettingsChange={setContextSettings}
+        onSaveSettings={() => {
+          grokService.updateContextSettings(contextSettings);
+          toast({
+            title: "Paramètres sauvegardés",
+            description: "Les paramètres de contexte ont été mis à jour.",
+          });
+        }}
+        onShowHistory={() => setShowHistory(!showHistory)}
+        onNewSession={createNewSession}
+      />
 
+      {/* Panneau d'historique */}
+      {showHistory && (
+        <div className="border-b border-border/50 p-4 bg-secondary/10">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold flex items-center gap-2">
+              <History className="w-5 h-5" />
+              Historique des Conversations
+            </h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowHistory(false)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+          <ChatSessionsManager
+            currentSessionId={currentSessionId}
+            onSessionSelect={loadSession}
+            onNewSession={createNewSession}
+          />
+        </div>
+      )}
+
+      {/* Zone de messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`flex gap-3 animate-slide-up ${
+              className={`flex gap-3 chat-message ${
                 message.role === "user" ? "justify-end" : "justify-start"
               }`}
             >
@@ -130,14 +291,14 @@ export function AIChat() {
                   <Bot className="w-4 h-4 text-primary" />
                 </div>
               )}
-              <div
-                className={`max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 ${
-                  message.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary/50 border border-border/50"
-                }`}
-              >
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                     <div
+                       className={`max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 ${
+                         message.role === "user"
+                           ? "bg-primary text-primary-foreground"
+                           : "bg-secondary/50 border border-border/50"
+                       }`}
+                     >
+                       <ParsedContent content={message.content} className="text-sm leading-relaxed" />
                 
                 {/* Display analysis if available */}
                 {message.analysis && (
@@ -226,7 +387,13 @@ export function AIChat() {
               <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
                 <Bot className="w-4 h-4 text-primary" />
               </div>
-              <div className="bg-secondary/50 border border-border/50 rounded-2xl px-4 py-3">
+                     <div className="bg-secondary/50 border border-border/50 rounded-2xl px-4 py-3 max-w-[80%] sm:max-w-[70%]">
+                       {streamingResponse ? (
+                         <div className="text-sm leading-relaxed">
+                           <StreamingParsedContent content={streamingResponse} />
+                           <span className="streaming-cursor">|</span>
+                         </div>
+                       ) : (
                 <div className="flex gap-1">
                   <div className="w-2 h-2 rounded-full bg-primary/60 animate-bounce"></div>
                   <div
@@ -238,19 +405,20 @@ export function AIChat() {
                     style={{ animationDelay: "0.2s" }}
                   ></div>
                 </div>
+                )}
               </div>
             </div>
           )}
         </div>
       </ScrollArea>
 
-      <div className="p-4 border-t border-border/50 bg-secondary/10">
+      <div className="p-4 border-t border-border/50 chat-input-area">
         <div className="flex gap-2">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask about stocks, market trends, or get trading advice..."
+            placeholder="Posez une question sur l'analyse sélectionnée..."
             className="flex-1 bg-secondary/50 border-border/50 focus-visible:ring-primary"
             disabled={isLoading}
           />
@@ -264,6 +432,6 @@ export function AIChat() {
           </Button>
         </div>
       </div>
-    </Card>
+    </div>
   );
 }
