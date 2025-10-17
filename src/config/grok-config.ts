@@ -1,4 +1,5 @@
 import { GROK_SYSTEM_PROMPT } from './grok-prompt.js';
+import { GROK_SYSTEM_PROMPT_OPTIMIZED } from './grok-prompt-optimized.js';
 
 // Configuration pour l'intégration Grok LLM
 export interface GrokConfig {
@@ -17,7 +18,7 @@ export const defaultGrokConfig: GrokConfig = {
   baseUrl: 'https://api.x.ai/v1',
   maxTokens: 750,
   temperature: 0.7,
-  systemPrompt: GROK_SYSTEM_PROMPT
+  systemPrompt: GROK_SYSTEM_PROMPT_OPTIMIZED // Utiliser la version optimisée par défaut
 };
 
 // Prompts spécialisés pour différents contextes
@@ -85,4 +86,14 @@ export const defaultContextSettings: ContextSettings = {
 // Fonction pour obtenir le prompt système
 export const getSystemPrompt = (): string => {
   return GROK_SYSTEM_PROMPT;
+};
+
+// Fonction pour obtenir le prompt système optimisé
+export const getOptimizedSystemPrompt = (): string => {
+  return GROK_SYSTEM_PROMPT_OPTIMIZED;
+};
+
+// Fonction pour basculer entre les prompts
+export const getSystemPromptByType = (type: 'full' | 'optimized' = 'optimized'): string => {
+  return type === 'full' ? GROK_SYSTEM_PROMPT : GROK_SYSTEM_PROMPT_OPTIMIZED;
 };

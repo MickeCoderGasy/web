@@ -114,14 +114,28 @@ export function AIChat() {
           ...prev,
           selectedAnalysisId: session.contextAnalysisId
         }));
+        
+        // Mettre à jour le contexte dans le service Grok
+        grokService.updateContextSettings({
+          selectedAnalysisId: session.contextAnalysisId
+        });
+        
         console.log('🔄 [AIChat] Contexte automatiquement resélectionné:', session.contextAnalysisId);
+        console.log('🔄 [AIChat] Service Grok mis à jour avec le contexte');
       } else {
         // Si aucune analyse n'était associée à cette session, réinitialiser le contexte
         setContextSettings(prev => ({
           ...prev,
           selectedAnalysisId: undefined
         }));
+        
+        // Mettre à jour le service Grok
+        grokService.updateContextSettings({
+          selectedAnalysisId: undefined
+        });
+        
         console.log('🔄 [AIChat] Aucun contexte associé à cette session');
+        console.log('🔄 [AIChat] Service Grok réinitialisé');
       }
       
       setShowHistory(false);
@@ -134,15 +148,30 @@ export function AIChat() {
 
   // Sauvegarder un message dans la session actuelle
   const saveMessageToHistory = async (message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
+    console.log('💾 [AIChat] Sauvegarde du message:', {
+      currentSessionId,
+      messageRole: message.role,
+      messageContent: message.content.substring(0, 50) + '...'
+    });
+    
     if (currentSessionId) {
-      const savedMessage = await chatHistoryServiceSupabase.addMessageToSession(currentSessionId, message);
-      if (savedMessage && message.role === 'user' && messages.length === 1) {
-        // Mettre à jour le titre avec le premier message utilisateur
-        const autoTitle = chatHistoryServiceSupabase.generateAutoTitle(message.content);
-        await chatHistoryServiceSupabase.updateSessionTitle(currentSessionId, autoTitle);
-        // Forcer le rechargement de l'historique après mise à jour du titre
-        setHistoryRefreshKey(prev => prev + 1);
+      try {
+        const savedMessage = await chatHistoryServiceSupabase.addMessageToSession(currentSessionId, message);
+        console.log('✅ [AIChat] Message sauvegardé:', savedMessage?.id);
+        
+        if (savedMessage && message.role === 'user' && messages.length === 1) {
+          // Mettre à jour le titre avec le premier message utilisateur
+          const autoTitle = chatHistoryServiceSupabase.generateAutoTitle(message.content);
+          await chatHistoryServiceSupabase.updateSessionTitle(currentSessionId, autoTitle);
+          console.log('📝 [AIChat] Titre mis à jour:', autoTitle);
+          // Forcer le rechargement de l'historique après mise à jour du titre
+          setHistoryRefreshKey(prev => prev + 1);
+        }
+      } catch (error) {
+        console.error('❌ [AIChat] Erreur lors de la sauvegarde du message:', error);
       }
+    } else {
+      console.warn('⚠️ [AIChat] Aucune session active, message non sauvegardé');
     }
   };
 
@@ -267,6 +296,12 @@ export function AIChat() {
     const userInput = input.trim();
     setMessages((prev) => [...prev, userMessage]);
     
+    // Créer une session si elle n'existe pas
+    if (!currentSessionId) {
+      console.log('🆕 [AIChat] Création automatique d\'une nouvelle session');
+      await createNewSession();
+    }
+    
     // Sauvegarder le message utilisateur
     saveMessageToHistory({
       role: 'user',
@@ -298,7 +333,7 @@ export function AIChat() {
         // Un message est considéré comme "premier" s'il n'y a que des messages d'assistant dans l'historique
         // OU si on vient de charger une session (car Grok n'a pas de mémoire persistante)
         const userMessages = conversationHistory.filter(msg => msg.role === 'user');
-        const isFirstMessage = userMessages.length === 0;
+        const isFirstMessage = userMessages.length === 0 || !currentSessionId;
         
         console.log('🔍 Détection premier message:', {
           totalMessages: conversationHistory.length,
@@ -306,6 +341,10 @@ export function AIChat() {
           currentSessionId: currentSessionId,
           isFirstMessage: isFirstMessage
         });
+
+        // Debug du contexte Grok
+        const contextDebug = grokService.getContextDebugInfo();
+        console.log('🔧 Contexte Grok:', contextDebug);
 
         const response = await grokService.sendMessageStream(
           userInput,

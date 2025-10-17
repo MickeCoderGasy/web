@@ -2,6 +2,8 @@ import { GrokConfig, defaultGrokConfig, ContextSettings, defaultContextSettings 
 import { env, checkConfig } from '@/config/env';
 import analysisHistoryService, { AnalysisHistoryItem } from '@/services/analysisHistoryService';
 import ohlcService from '@/services/ohlcService';
+import grokCacheService from '@/services/grokCacheService';
+import OHLCRefreshStrategy, { defaultOHLCRefreshConfig } from '@/services/ohlcRefreshStrategy';
 import { supabase } from '@/integrations/supabase/client';
 
 export interface GrokMessage {
@@ -41,6 +43,7 @@ export interface MarketData {
 class GrokService {
   private config: GrokConfig;
   private contextSettings: ContextSettings;
+  private ohlcRefreshStrategy: OHLCRefreshStrategy;
 
   constructor() {
     this.config = { 
@@ -48,6 +51,7 @@ class GrokService {
       apiKey: env.GROK_API_KEY 
     };
     this.contextSettings = { ...defaultContextSettings };
+    this.ohlcRefreshStrategy = new OHLCRefreshStrategy(defaultOHLCRefreshConfig);
     
     // Vérifier la configuration au démarrage
     if (!checkConfig()) {
@@ -119,7 +123,23 @@ class GrokService {
       try {
         const selectedAnalysis = await analysisHistoryService.getAnalysisById(this.contextSettings.selectedAnalysisId);
         if (selectedAnalysis) {
-          const analysisContext = analysisHistoryService.formatAnalysisForContext(selectedAnalysis);
+          // Vérifier le cache pour le contexte d'analyse
+          const analysisContent = analysisHistoryService.formatAnalysisForContext(selectedAnalysis);
+          const analysisCacheKey = grokCacheService.getAnalysisCacheKey(
+            this.contextSettings.selectedAnalysisId, 
+            analysisContent
+          );
+          
+          let analysisContext: string;
+          if (grokCacheService.isCached(analysisCacheKey)) {
+            console.log('💾 Utilisation du cache pour l\'analyse');
+            analysisContext = grokCacheService.getCachedContent(analysisCacheKey) || analysisContent;
+          } else {
+            console.log('🔄 Génération et mise en cache de l\'analyse');
+            analysisContext = analysisContent;
+            grokCacheService.cacheAnalysis(this.contextSettings.selectedAnalysisId, selectedAnalysis, analysisContext);
+          }
+          
           context += analysisContext;
           console.log('📊 Contexte analyse ajouté:', analysisContext.substring(0, 200) + '...');
           
@@ -157,23 +177,55 @@ class GrokService {
             // 🚀 ENRICHISSEMENT AUTOMATIQUE AVEC DONNÉES OHLC
             try {
               console.log('🔄 Enrichissement du contexte avec les données OHLC...');
-              console.log('📊 Paramètres OHLC:', {
-                pair: selectedAnalysis.result.pair,
-                analysisDateTime: selectedAnalysis.result.generated_at || selectedAnalysis.timestamp
-              });
-              
-              // Récupérer le token d'accès Supabase depuis le contexte d'authentification
-              const accessToken = await this.getSupabaseAccessToken();
               const pair = selectedAnalysis.result.pair;
               const analysisDateTime = selectedAnalysis.result.generated_at || selectedAnalysis.timestamp;
               
-              console.log('🔑 Token Supabase récupéré:', accessToken ? 'Oui' : 'Non');
-              
-              const ohlcContext = await ohlcService.getOHLCContext(
-                accessToken,
+              console.log('📊 Paramètres OHLC:', {
                 pair,
                 analysisDateTime
-              );
+              });
+              
+              // Vérifier si les données OHLC doivent être rafraîchies
+              const shouldRefresh = this.ohlcRefreshStrategy.shouldRefresh(pair, analysisDateTime);
+              
+              let ohlcContext: string;
+              
+              if (shouldRefresh) {
+                console.log('🔄 Rafraîchissement des données OHLC (stratégie intelligente)');
+                // Récupérer le token d'accès Supabase depuis le contexte d'authentification
+                const accessToken = await this.getSupabaseAccessToken();
+                console.log('🔑 Token Supabase récupéré:', accessToken ? 'Oui' : 'Non');
+                
+                // Récupérer les données OHLC fraîches
+                ohlcContext = await ohlcService.getOHLCContext(
+                  accessToken,
+                  pair,
+                  analysisDateTime
+                );
+                
+                // Mettre à jour le cache avec les nouvelles données
+                grokCacheService.cacheOHLCData(pair, analysisDateTime, ohlcContext);
+                console.log('💾 Données OHLC mises à jour dans le cache');
+                
+                // Marquer le rafraîchissement comme terminé
+                this.ohlcRefreshStrategy.markRefreshComplete(pair, analysisDateTime);
+              } else {
+                console.log('💾 Utilisation du cache OHLC (pas de rafraîchissement nécessaire)');
+                // Vérifier le cache pour les données OHLC
+                const ohlcCacheKey = grokCacheService.getOHLCCacheKey(pair, analysisDateTime, '');
+                ohlcContext = grokCacheService.getCachedContent(ohlcCacheKey) || '';
+                
+                if (!ohlcContext) {
+                  console.log('⚠️ Aucune donnée OHLC en cache, rafraîchissement forcé');
+                  const accessToken = await this.getSupabaseAccessToken();
+                  ohlcContext = await ohlcService.getOHLCContext(
+                    accessToken,
+                    pair,
+                    analysisDateTime
+                  );
+                  grokCacheService.cacheOHLCData(pair, analysisDateTime, ohlcContext);
+                }
+              }
               
               console.log('📈 Contexte OHLC généré:', ohlcContext);
               console.log('📏 Taille du contexte OHLC:', ohlcContext.length, 'caractères');
@@ -234,7 +286,7 @@ class GrokService {
       const messages: GrokMessage[] = [
         {
           role: 'system',
-          content: this.config.systemPrompt
+          content: this.getCachedSystemPrompt()
         },
         {
           role: 'user',
@@ -312,7 +364,7 @@ class GrokService {
       const messages: GrokMessage[] = [
         {
           role: 'system',
-          content: this.config.systemPrompt
+          content: this.getCachedSystemPrompt()
         },
         {
           role: 'user',
@@ -398,9 +450,123 @@ class GrokService {
     return { ...this.config };
   }
 
+  // Obtenir les statistiques du cache
+  getCacheStats() {
+    return grokCacheService.getStats();
+  }
+
+  // Nettoyer le cache
+  clearCache() {
+    grokCacheService.clearCache();
+    console.log('🗑️ Cache Grok vidé');
+  }
+
+  // Obtenir toutes les entrées du cache
+  getAllCacheEntries() {
+    return grokCacheService.getAllEntries();
+  }
+
+  // Forcer le rafraîchissement des données OHLC
+  async refreshOHLCData(pair: string, analysisDateTime: string): Promise<string> {
+    console.log('🔄 Rafraîchissement forcé des données OHLC pour', pair);
+    
+    try {
+      // Récupérer le token d'accès Supabase
+      const accessToken = await this.getSupabaseAccessToken();
+      
+      // Récupérer les données OHLC fraîches
+      const ohlcContext = await ohlcService.getOHLCContext(
+        accessToken,
+        pair,
+        analysisDateTime
+      );
+      
+      // Mettre à jour le cache avec les nouvelles données
+      grokCacheService.cacheOHLCData(pair, analysisDateTime, ohlcContext);
+      
+      console.log('✅ Données OHLC rafraîchies et mises en cache');
+      return ohlcContext;
+    } catch (error) {
+      console.error('❌ Erreur lors du rafraîchissement des données OHLC:', error);
+      throw error;
+    }
+  }
+
+  // Invalider le cache OHLC pour une paire spécifique
+  invalidateOHLCCache(pair: string, analysisDateTime?: string) {
+    const entries = grokCacheService.getAllEntries();
+    let removedCount = 0;
+    
+    entries.forEach(entry => {
+      if (entry.type === 'ohlc') {
+        // Vérifier si c'est la paire concernée
+        const keyParts = entry.id.split(':');
+        if (keyParts.length >= 2 && keyParts[1].includes(pair)) {
+          if (!analysisDateTime || keyParts[1].includes(analysisDateTime)) {
+            grokCacheService.removeEntry(entry.id);
+            removedCount++;
+          }
+        }
+      }
+    });
+    
+    console.log(`🗑️ ${removedCount} entrées OHLC supprimées du cache pour ${pair}`);
+    return removedCount;
+  }
+
   // Obtenir les paramètres de contexte
   getContextSettings(): ContextSettings {
     return { ...this.contextSettings };
+  }
+
+  // Vérifier si le contexte est correctement configuré
+  isContextConfigured(): boolean {
+    return !!(this.contextSettings.enabled && this.contextSettings.selectedAnalysisId);
+  }
+
+  // Obtenir des informations de debug sur le contexte
+  getContextDebugInfo(): any {
+    return {
+      contextSettings: this.contextSettings,
+      isConfigured: this.isContextConfigured(),
+      selectedAnalysisId: this.contextSettings.selectedAnalysisId,
+      enabled: this.contextSettings.enabled
+    };
+  }
+
+  // Configuration de la stratégie de rafraîchissement OHLC
+  updateOHLCRefreshConfig(config: Partial<import('@/services/ohlcRefreshStrategy').OHLCRefreshConfig>) {
+    this.ohlcRefreshStrategy.updateConfig(config);
+    console.log('⚙️ Configuration de rafraîchissement OHLC mise à jour:', config);
+  }
+
+  // Obtenir la configuration de rafraîchissement OHLC
+  getOHLCRefreshConfig() {
+    return this.ohlcRefreshStrategy.getConfig();
+  }
+
+  // Forcer le rafraîchissement OHLC pour une paire
+  forceOHLCRefresh(pair: string, analysisDateTime: string) {
+    this.ohlcRefreshStrategy.forceRefresh(pair, analysisDateTime);
+    console.log(`🔄 Rafraîchissement forcé pour ${pair}`);
+  }
+
+  /**
+   * Obtient le prompt système avec cache
+   */
+  private getCachedSystemPrompt(): string {
+    const systemPrompt = this.config.systemPrompt;
+    const cacheKey = grokCacheService.getSystemPromptCacheKey(systemPrompt);
+    
+    // Vérifier si le prompt est en cache
+    if (grokCacheService.isCached(cacheKey)) {
+      console.log('💾 Utilisation du cache pour le prompt système');
+      return grokCacheService.getCachedContent(cacheKey) || systemPrompt;
+    } else {
+      console.log('🔄 Mise en cache du prompt système');
+      grokCacheService.cacheSystemPrompt(systemPrompt);
+      return systemPrompt;
+    }
   }
 }
 
