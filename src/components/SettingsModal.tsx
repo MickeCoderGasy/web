@@ -23,31 +23,38 @@ export function SettingsModal({ settings, onSettingsChange, onSave }: SettingsMo
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="flex items-center gap-2">
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="flex items-center gap-1 sm:gap-2 h-8 sm:h-9 px-2 sm:px-3"
+        >
           <Settings className="w-4 h-4" />
-          Paramètres
+          <span className="hidden sm:inline">Paramètres</span>
           {settings.selectedAnalysisId && (
-            <Badge variant="default" className="ml-1 text-xs">
+            <Badge variant="default" className="ml-1 text-xs px-1 sm:px-2">
               <Target className="w-3 h-3 mr-1" />
-              Analysé
+              <span className="hidden sm:inline">Analysé</span>
+              <span className="sm:hidden">✓</span>
             </Badge>
           )}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-4xl settings-modal">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] settings-modal">
+        <DialogHeader className="pb-4">
+          <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
             <Settings className="w-5 h-5" />
-            Configuration du Chat IA
+            <span className="hidden sm:inline">Configuration du Chat IA</span>
+            <span className="sm:hidden">Paramètres</span>
             {!settings.selectedAnalysisId && (
-              <Badge variant="destructive" className="ml-2">
+              <Badge variant="destructive" className="ml-2 text-xs">
                 <AlertCircle className="w-3 h-3 mr-1" />
-                Analyse requise
+                <span className="hidden sm:inline">Analyse requise</span>
+                <span className="sm:hidden">Requis</span>
               </Badge>
             )}
           </DialogTitle>
         </DialogHeader>
-        <div className="mt-4">
+        <div className="overflow-y-auto max-h-[calc(90vh-120px)]">
           <ContextSettingsComponent
             settings={settings}
             onSettingsChange={onSettingsChange}
