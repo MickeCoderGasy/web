@@ -61,13 +61,15 @@ export function useOHLCEnrichment(settings: ContextSettings) {
         });
 
         if (ohlcResponse.success && ohlcResponse.data) {
+          // Vérifier si c'est un tableau de données
+          const dataArray = Array.isArray(ohlcResponse.data) ? ohlcResponse.data : [ohlcResponse.data];
           setState(prev => ({
             ...prev,
             isLoading: false,
             isEnriched: true,
             error: null,
             lastUpdate: new Date(),
-            ohlcData: ohlcResponse.data
+            ohlcData: dataArray
           }));
         } else {
           // Ne pas considérer "Aucune donnée OHLC disponible" comme une erreur critique

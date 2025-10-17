@@ -119,55 +119,85 @@ class OHLCService {
   }
 
   /**
-   * Formate les données OHLC pour l'injection dans le contexte
+   * Formate les données OHLC multiples pour l'injection dans le contexte
    */
-  formatOHLCForContext(ohlcData: any): string {
-    console.log('🔍 Données OHLC à formater:', ohlcData);
-    console.log('🔍 Propriétés disponibles dans ohlcData:', Object.keys(ohlcData));
+  formatOHLCForContext(ohlcDataArray: any[], analysisDateTime: string): string {
+    console.log('🔍 Données OHLC multiples à formater:', ohlcDataArray);
+    console.log('🔍 Nombre de données reçues:', ohlcDataArray?.length || 0);
+    console.log('🔍 Date/heure d\'analyse:', analysisDateTime);
     
-    // Mapper les propriétés selon le format reçu (priorité aux formats courts du webhook)
-    const pair = ohlcData.ticker || ohlcData.pair || ohlcData.symbol || ohlcData.instrument || 'N/A';
-    const timestamp = ohlcData.date_utc || ohlcData.timestamp || ohlcData.date || ohlcData.time || ohlcData.datetime;
-    const open = ohlcData.o || ohlcData.open || ohlcData.Open;
-    const high = ohlcData.h || ohlcData.high || ohlcData.High;
-    const low = ohlcData.l || ohlcData.low || ohlcData.Low;
-    const close = ohlcData.c || ohlcData.close || ohlcData.Close;
-    const volume = ohlcData.v || ohlcData.volume || ohlcData.Volume;
-    const volumeWeighted = ohlcData.vw || ohlcData.volume_weighted || ohlcData.VolumeWeighted;
-    const timeframe = ohlcData.t || ohlcData.timeframe || ohlcData.tf || ohlcData.interval || 'N/A';
-    const tradesCount = ohlcData.n || ohlcData.trades_count || ohlcData.tradesCount;
-    
-    console.log('📊 Propriétés mappées:', {
-      pair, timestamp, open, high, low, close, volume, volumeWeighted, timeframe, tradesCount
+    if (!ohlcDataArray || !Array.isArray(ohlcDataArray) || ohlcDataArray.length === 0) {
+      console.warn('⚠️ Aucune donnée OHLC reçue ou format invalide');
+      return '=== DONNÉES OHLC ===\nAucune donnée OHLC disponible\n===============================';
+    }
+
+    // Convertir la date d'analyse en timestamp pour comparaison
+    const analysisTimestamp = new Date(analysisDateTime).getTime();
+    console.log('🕐 Timestamp d\'analyse:', analysisTimestamp);
+
+    // Filtrer les données postérieures à l'analyse et timeframe M1
+    const filteredData = ohlcDataArray.filter(item => {
+      const itemTimestamp = new Date(item.date_utc || item.timestamp || item.date || item.time || item.datetime).getTime();
+      const timeframe = item.t || item.timeframe || item.tf || item.interval || 'N/A';
+      const isAfterAnalysis = itemTimestamp > analysisTimestamp;
+      const isM1 = timeframe === 'M1' || timeframe === '1m' || timeframe === '1min';
+      
+      console.log('🔍 Filtrage:', {
+        itemTimestamp,
+        isAfterAnalysis,
+        timeframe,
+        isM1,
+        keep: isAfterAnalysis && isM1
+      });
+      
+      return isAfterAnalysis && isM1;
     });
-    
-    // Vérifier si on a au moins les données essentielles
-    if (!pair || pair === 'N/A') {
-      console.warn('⚠️ Aucune paire trouvée dans les données OHLC');
-      return '=== DONNÉES OHLC ===\nAucune donnée OHLC disponible (paire non trouvée)\n===============================';
+
+    console.log('📊 Données filtrées:', filteredData.length, 'sur', ohlcDataArray.length);
+
+    if (filteredData.length === 0) {
+      console.warn('⚠️ Aucune donnée OHLC M1 postérieure à l\'analyse trouvée');
+      return '=== DONNÉES OHLC ===\nAucune donnée OHLC M1 postérieure à l\'analyse disponible\n===============================';
     }
+
+    // Trier par timestamp (plus récent en premier)
+    filteredData.sort((a, b) => {
+      const timestampA = new Date(a.date_utc || a.timestamp || a.date || a.time || a.datetime).getTime();
+      const timestampB = new Date(b.date_utc || b.timestamp || b.date || b.time || b.datetime).getTime();
+      return timestampB - timestampA; // Plus récent en premier
+    });
+
+    // Formater toutes les données sélectionnées
+    let context = `=== DONNÉES OHLC M1 POSTÉRIEURES À L'ANALYSE ===\n`;
+    context += `Nombre de bougies M1: ${filteredData.length}\n`;
+    context += `Période: ${filteredData.length > 0 ? formatForGrok(filteredData[filteredData.length - 1].date_utc || filteredData[filteredData.length - 1].timestamp) : 'N/A'} à ${filteredData.length > 0 ? formatForGrok(filteredData[0].date_utc || filteredData[0].timestamp) : 'N/A'}\n\n`;
+
+    filteredData.forEach((item, index) => {
+      const pair = item.ticker || item.pair || item.symbol || item.instrument || 'N/A';
+      const timestamp = item.date_utc || item.timestamp || item.date || item.time || item.datetime;
+      const open = item.o || item.open || item.Open;
+      const high = item.h || item.high || item.High;
+      const low = item.l || item.low || item.Low;
+      const close = item.c || item.close || item.Close;
+      const volume = item.v || item.volume || item.Volume;
+      const timeframe = item.t || item.timeframe || item.tf || item.interval || 'M1';
+      
+      const date = timestamp ? formatForGrok(timestamp) : 'N/A';
+      
+      context += `--- Bougie M1 #${index + 1} ---\n`;
+      context += `Timestamp: ${date}\n`;
+      context += `Open: ${open || 'N/A'}\n`;
+      context += `High: ${high || 'N/A'}\n`;
+      context += `Low: ${low || 'N/A'}\n`;
+      context += `Close: ${close || 'N/A'}\n`;
+      context += `Volume: ${volume ? volume.toLocaleString() : 'N/A'}\n`;
+      context += `Timeframe: ${timeframe}\n\n`;
+    });
+
+    context += `===============================`;
     
-    if (!timestamp || timestamp === 'N/A') {
-      console.warn('⚠️ Aucun timestamp trouvé dans les données OHLC');
-      return '=== DONNÉES OHLC ===\nAucune donnée OHLC disponible (timestamp non trouvé)\n===============================';
-    }
-    
-    // Toujours utiliser UTC pour Grok
-    const date = timestamp ? formatForGrok(timestamp) : 'N/A';
-    
-    return `
-=== DONNÉES OHLC RÉCENTES ===
-Paire: ${pair}
-Timestamp: ${date}
-Open: ${open || 'N/A'}
-High: ${high || 'N/A'}
-Low: ${low || 'N/A'}
-Close: ${close || 'N/A'}
-${volume ? `Volume: ${volume}` : ''}
-${volumeWeighted ? `Volume Pondéré: ${volumeWeighted}` : ''}
-${timeframe ? `Timeframe: ${timeframe}` : ''}
-${tradesCount ? `Nombre de Trades: ${tradesCount}` : ''}
-===============================`;
+    console.log('📊 Contexte OHLC formaté:', context.substring(0, 200) + '...');
+    return context;
   }
 
   /**
@@ -202,7 +232,9 @@ ${tradesCount ? `Nombre de Trades: ${tradesCount}` : ''}
       });
       
       if (response.success && response.data) {
-        const formattedContext = this.formatOHLCForContext(response.data);
+        // S'assurer que les données sont sous forme de tableau
+        const dataArray = Array.isArray(response.data) ? response.data : [response.data];
+        const formattedContext = this.formatOHLCForContext(dataArray, analysisDateTime);
         console.log('📊 Contexte OHLC formaté:', formattedContext);
         console.log('📏 Taille du contexte formaté:', formattedContext.length, 'caractères');
         return formattedContext;

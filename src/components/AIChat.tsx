@@ -6,8 +6,9 @@ import { ChatHeader } from "@/components/ChatHeader";
 import { ChatSessionsManager } from "@/components/ChatSessionsManager";
 import { ContextSettings, defaultContextSettings } from "@/config/grok-config";
 import { ParsedContent, StreamingParsedContent } from "@/components/ParsedContent";
-import chatHistoryService, { ChatMessage, ChatSession } from "@/services/chatHistoryService";
-import { Send, Bot, User, TrendingUp, AlertTriangle, History, X } from "lucide-react";
+import chatHistoryServiceSupabase, { ChatMessage, ChatSession } from "@/services/chatHistoryServiceSupabase";
+import analysisHistoryService from "@/services/analysisHistoryService";
+import { Send, Bot, User, TrendingUp, AlertTriangle, History, X, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -41,6 +42,8 @@ export function AIChat() {
   const [streamingResponse, setStreamingResponse] = useState("");
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [isRefreshingOHLC, setIsRefreshingOHLC] = useState(false);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -51,25 +54,50 @@ export function AIChat() {
   };
 
   // Créer une nouvelle session
-  const createNewSession = () => {
-    const title = "Nouvelle conversation";
-    const session = chatHistoryService.createChatSession(
-      title,
-      contextSettings.selectedAnalysisId || undefined,
-      useGrok ? 'grok' : 'standard'
-    );
-    setCurrentSessionId(session.id);
-    setMessages(initialMessages);
-    setShowHistory(false);
-    toast({
-      title: "Nouvelle session",
-      description: "Une nouvelle conversation a été créée",
-    });
+  const createNewSession = async () => {
+    try {
+      // Test de connexion Supabase
+      console.log('🧪 [AIChat] Test de connexion Supabase...');
+      const connectionOk = await chatHistoryServiceSupabase.testConnection();
+      if (!connectionOk) {
+        throw new Error('Connexion Supabase échouée');
+      }
+      
+      const title = "Nouvelle conversation";
+      // Créer la session avec le contexte actuellement sélectionné
+      const session = await chatHistoryServiceSupabase.createChatSession(
+        title,
+        contextSettings.selectedAnalysisId || undefined,
+        useGrok ? 'grok' : 'standard'
+      );
+      setCurrentSessionId(session.id);
+      setMessages(initialMessages);
+      setShowHistory(false);
+      
+      // Log pour debug
+      console.log('🆕 [AIChat] Nouvelle session créée avec contexte:', contextSettings.selectedAnalysisId || 'aucun');
+      console.log('🆕 [AIChat] ID de la session créée:', session.id);
+      
+      // Forcer le rechargement de l'historique
+      setHistoryRefreshKey(prev => prev + 1);
+      
+      toast({
+        title: "Nouvelle session",
+        description: `Nouvelle conversation créée${contextSettings.selectedAnalysisId ? ' avec le contexte actuel' : ''}`,
+      });
+    } catch (error) {
+      console.error('❌ [AIChat] Erreur lors de la création de la session:', error);
+      toast({
+        title: "Erreur",
+        description: `Impossible de créer la session: ${error.message}`,
+        variant: "destructive",
+      });
+    }
   };
 
   // Charger une session existante
-  const loadSession = (sessionId: string) => {
-    const session = chatHistoryService.getChatSession(sessionId);
+  const loadSession = async (sessionId: string) => {
+    const session = await chatHistoryServiceSupabase.getChatSession(sessionId);
     if (session) {
       setCurrentSessionId(sessionId);
       setMessages(session.messages.map(msg => ({
@@ -79,29 +107,145 @@ export function AIChat() {
         analysis: undefined // On ne stocke pas les analyses dans l'historique
       })));
       setUseGrok(session.model === 'grok');
+      
+      // Resélectionner automatiquement le contexte correspondant à la session
       if (session.contextAnalysisId) {
         setContextSettings(prev => ({
           ...prev,
           selectedAnalysisId: session.contextAnalysisId
         }));
+        console.log('🔄 [AIChat] Contexte automatiquement resélectionné:', session.contextAnalysisId);
+      } else {
+        // Si aucune analyse n'était associée à cette session, réinitialiser le contexte
+        setContextSettings(prev => ({
+          ...prev,
+          selectedAnalysisId: undefined
+        }));
+        console.log('🔄 [AIChat] Aucun contexte associé à cette session');
       }
+      
       setShowHistory(false);
       toast({
         title: "Session chargée",
-        description: `Conversation "${session.title}" restaurée`,
+        description: `Conversation "${session.title}" restaurée${session.contextAnalysisId ? ' avec son contexte' : ''}`,
       });
     }
   };
 
   // Sauvegarder un message dans la session actuelle
-  const saveMessageToHistory = (message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
+  const saveMessageToHistory = async (message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     if (currentSessionId) {
-      const savedMessage = chatHistoryService.addMessageToSession(currentSessionId, message);
+      const savedMessage = await chatHistoryServiceSupabase.addMessageToSession(currentSessionId, message);
       if (savedMessage && message.role === 'user' && messages.length === 1) {
         // Mettre à jour le titre avec le premier message utilisateur
-        const autoTitle = chatHistoryService.generateAutoTitle(message.content);
-        chatHistoryService.updateSessionTitle(currentSessionId, autoTitle);
+        const autoTitle = chatHistoryServiceSupabase.generateAutoTitle(message.content);
+        await chatHistoryServiceSupabase.updateSessionTitle(currentSessionId, autoTitle);
+        // Forcer le rechargement de l'historique après mise à jour du titre
+        setHistoryRefreshKey(prev => prev + 1);
       }
+    }
+  };
+
+  // Mettre à jour le contexte de la session actuelle
+  const updateCurrentSessionContext = async (newContextId?: string) => {
+    if (currentSessionId) {
+      await chatHistoryServiceSupabase.updateSessionContext(currentSessionId, newContextId);
+      console.log('🔄 [AIChat] Contexte de session actuelle mis à jour:', newContextId || 'aucun');
+    }
+  };
+
+  // Gérer les changements de paramètres de contexte
+  const handleContextSettingsChange = (newSettings: ContextSettings) => {
+    setContextSettings(newSettings);
+    // Mettre à jour le contexte de la session actuelle
+    updateCurrentSessionContext(newSettings.selectedAnalysisId);
+  };
+
+  // Fonction pour rafraîchir les données OHLC et renvoyer le contexte
+  const refreshOHLCAndResendContext = async () => {
+    if (!contextSettings.selectedAnalysisId) {
+      toast({
+        title: "Erreur",
+        description: "Aucune analyse sélectionnée pour rafraîchir les données OHLC",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsRefreshingOHLC(true);
+    
+    try {
+      // Récupérer l'analyse sélectionnée
+      const selectedAnalysis = await (await import("@/services/analysisHistoryService")).default.getAnalysisById(contextSettings.selectedAnalysisId);
+      if (!selectedAnalysis) {
+        throw new Error('Analyse sélectionnée introuvable');
+      }
+
+      // Créer un message système pour indiquer le rafraîchissement
+      const refreshMessage: Message = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: "🔄 **Rafraîchissement des données OHLC en cours...**\n\nLes données de marché ont été mises à jour avec les informations les plus récentes.",
+      };
+      
+      setMessages(prev => [...prev, refreshMessage]);
+      
+      // Envoyer le contexte rafraîchi à Grok
+      const conversationHistory = messages
+        .filter(msg => msg.role !== 'assistant' || !msg.analysis)
+        .map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }));
+
+      // Forcer l'envoi du contexte complet (comme un premier message)
+      const response = await grokService.sendMessageStream(
+        "Rafraîchis l'analyse avec les nouvelles données OHLC et fournis une mise à jour complète du contexte de trading.",
+        (chunk) => {
+          setStreamingResponse(prev => prev + chunk);
+        },
+        conversationHistory,
+        true // Force l'envoi du contexte complet
+      );
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: response,
+      };
+      
+      setMessages(prev => [...prev, assistantMessage]);
+      
+      // Sauvegarder dans l'historique
+      saveMessageToHistory({
+        role: 'assistant',
+        content: response,
+        model: 'grok'
+      });
+      
+      setStreamingResponse("");
+      
+      toast({
+        title: "Données OHLC rafraîchies",
+        description: "Les données de marché ont été mises à jour avec succès",
+      });
+      
+    } catch (error: any) {
+      console.error('Erreur lors du rafraîchissement OHLC:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `❌ **Erreur lors du rafraîchissement des données OHLC**\n\n${error.message || 'Impossible de mettre à jour les données de marché.'}`,
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      
+      toast({
+        title: "Erreur de rafraîchissement",
+        description: error.message || "Impossible de rafraîchir les données OHLC",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshingOHLC(false);
     }
   };
 
@@ -136,6 +280,11 @@ export function AIChat() {
 
     try {
       if (useGrok) {
+        // Vérifier qu'une analyse est sélectionnée avant d'envoyer à Grok
+        if (!contextSettings.selectedAnalysisId) {
+          throw new Error('Veuillez d\'abord sélectionner une analyse dans les paramètres de contexte (icône ⚙️) pour utiliser Grok.');
+        }
+
         // Utiliser Grok avec contexte
         // Préparer l'historique de conversation pour Grok
         const conversationHistory = messages
@@ -254,7 +403,7 @@ export function AIChat() {
         onToggleModel={setUseGrok}
         isGrokConfigured={isGrokConfigured()}
         settings={contextSettings}
-        onSettingsChange={setContextSettings}
+        onSettingsChange={handleContextSettingsChange}
         onSaveSettings={() => {
           grokService.updateContextSettings(contextSettings);
           toast({
@@ -283,6 +432,7 @@ export function AIChat() {
             </Button>
           </div>
           <ChatSessionsManager
+            key={historyRefreshKey}
             currentSessionId={currentSessionId}
             onSessionSelect={loadSession}
             onNewSession={createNewSession}
@@ -436,6 +586,21 @@ export function AIChat() {
             className="flex-1 bg-secondary/50 border-border/50 focus-visible:ring-primary"
             disabled={isLoading}
           />
+          
+          {/* Bouton de rafraîchissement OHLC */}
+          {useGrok && contextSettings.selectedAnalysisId && (
+            <Button
+              onClick={refreshOHLCAndResendContext}
+              disabled={isLoading || isRefreshingOHLC}
+              variant="outline"
+              size="icon"
+              title="Rafraîchir les données OHLC et renvoyer le contexte"
+              className="border-orange-500/50 hover:border-orange-500 hover:bg-orange-500/10"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshingOHLC ? 'animate-spin' : ''}`} />
+            </Button>
+          )}
+          
           <Button
             onClick={handleSend}
             disabled={!input.trim() || isLoading}
@@ -445,6 +610,14 @@ export function AIChat() {
             <Send className="w-4 h-4" />
           </Button>
         </div>
+        
+        {/* Indicateur de rafraîchissement OHLC */}
+        {useGrok && contextSettings.selectedAnalysisId && (
+          <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
+            <RefreshCw className="w-3 h-3" />
+            <span>Bouton orange : Rafraîchir les données OHLC en temps réel</span>
+          </div>
+        )}
       </div>
     </div>
   );

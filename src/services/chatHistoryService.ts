@@ -29,14 +29,24 @@ class ChatHistoryService {
   getChatSessions(): ChatSession[] {
     try {
       const stored = localStorage.getItem(this.STORAGE_KEY);
-      if (!stored) return [];
+      console.log('🔍 [ChatHistoryService] localStorage raw data:', stored);
+      
+      if (!stored) {
+        console.log('📭 [ChatHistoryService] Aucune donnée dans localStorage');
+        return [];
+      }
       
       const sessions = JSON.parse(stored);
-      return sessions.sort((a: ChatSession, b: ChatSession) => 
+      console.log('📚 [ChatHistoryService] Sessions parsées:', sessions.length, sessions);
+      
+      const sortedSessions = sessions.sort((a: ChatSession, b: ChatSession) => 
         new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
       );
+      
+      console.log('📚 [ChatHistoryService] Sessions triées:', sortedSessions.length);
+      return sortedSessions;
     } catch (error) {
-      console.error('Erreur lors de la récupération des sessions:', error);
+      console.error('❌ [ChatHistoryService] Erreur lors de la récupération des sessions:', error);
       return [];
     }
   }
@@ -72,7 +82,9 @@ class ChatHistoryService {
       model
     };
 
+    console.log('🆕 [ChatHistoryService] Création d\'une nouvelle session:', session);
     this.saveSession(session);
+    console.log('✅ [ChatHistoryService] Session créée et sauvegardée:', session.id);
     return session;
   }
 
@@ -125,6 +137,24 @@ class ChatHistoryService {
       return true;
     } catch (error) {
       console.error('Erreur lors de la mise à jour du titre:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Met à jour le contexte d'une session
+   */
+  updateSessionContext(sessionId: string, contextAnalysisId?: string): boolean {
+    try {
+      const session = this.getChatSession(sessionId);
+      if (!session) return false;
+
+      session.contextAnalysisId = contextAnalysisId;
+      this.saveSession(session);
+      console.log('🔄 [ChatHistoryService] Contexte de session mis à jour:', sessionId, contextAnalysisId || 'aucun');
+      return true;
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour du contexte:', error);
       return false;
     }
   }
@@ -206,9 +236,14 @@ class ChatHistoryService {
    */
   private saveAllSessions(sessions: ChatSession[]): void {
     try {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(sessions));
+      console.log('💾 [ChatHistoryService] Sauvegarde de', sessions.length, 'sessions');
+      console.log('💾 [ChatHistoryService] Sessions à sauvegarder:', sessions);
+      const jsonData = JSON.stringify(sessions);
+      console.log('💾 [ChatHistoryService] Données JSON:', jsonData.substring(0, 200) + '...');
+      localStorage.setItem(this.STORAGE_KEY, jsonData);
+      console.log('✅ [ChatHistoryService] Sessions sauvegardées avec succès');
     } catch (error) {
-      console.error('Erreur lors de la sauvegarde des sessions:', error);
+      console.error('❌ [ChatHistoryService] Erreur lors de la sauvegarde des sessions:', error);
     }
   }
 

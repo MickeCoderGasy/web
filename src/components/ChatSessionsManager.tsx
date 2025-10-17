@@ -19,7 +19,7 @@ import {
   Upload,
   AlertTriangle
 } from 'lucide-react';
-import chatHistoryService, { ChatSession } from '@/services/chatHistoryService';
+import chatHistoryServiceSupabase, { ChatSession } from '@/services/chatHistoryServiceSupabase';
 import { useToast } from '@/hooks/use-toast';
 
 interface ChatSessionsManagerProps {
@@ -46,7 +46,9 @@ export function ChatSessionsManager({
   const loadSessions = async () => {
     setIsLoading(true);
     try {
-      const recentSessions = chatHistoryService.getRecentSessions(20);
+      const recentSessions = await chatHistoryServiceSupabase.getRecentSessions(20);
+      console.log('📚 [ChatSessionsManager] Sessions chargées:', recentSessions.length);
+      console.log('📚 [ChatSessionsManager] Détails des sessions:', recentSessions.map(s => ({ id: s.id, title: s.title, messages: s.messages.length })));
       setSessions(recentSessions);
     } catch (error) {
       console.error('Erreur lors du chargement des sessions:', error);
@@ -62,7 +64,7 @@ export function ChatSessionsManager({
 
   const handleDeleteSession = async (sessionId: string) => {
     try {
-      const success = chatHistoryService.deleteSession(sessionId);
+      const success = await chatHistoryServiceSupabase.deleteSession(sessionId);
       if (success) {
         setSessions(prev => prev.filter(s => s.id !== sessionId));
         toast({
@@ -84,7 +86,7 @@ export function ChatSessionsManager({
   const handleClearAllHistory = async () => {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer tout l\'historique des conversations ?')) {
       try {
-        const success = chatHistoryService.clearAllHistory();
+        const success = await chatHistoryServiceSupabase.clearAllHistory();
         if (success) {
           setSessions([]);
           toast({
