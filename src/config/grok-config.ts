@@ -15,7 +15,7 @@ export const defaultGrokConfig: GrokConfig = {
   apiKey: import.meta.env.VITE_GROK_API_KEY || '',
   model: 'grok-4-fast',
   baseUrl: 'https://api.x.ai/v1',
-  maxTokens: 500,
+  maxTokens: 750,
   temperature: 0.7,
   systemPrompt: GROK_SYSTEM_PROMPT
 };

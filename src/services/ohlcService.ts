@@ -76,10 +76,12 @@ class OHLCService {
         // Prendre la donnée la plus récente (première du tableau)
         const latestOHLC = data[0];
         console.log(`✅ Données OHLC récupérées (${data.length} éléments disponibles):`, latestOHLC);
+        console.log('📊 Structure complète de la première donnée:', JSON.stringify(latestOHLC, null, 2));
+        console.log('📊 Propriétés disponibles:', Object.keys(latestOHLC));
         console.log('📊 Première donnée OHLC sélectionnée:', {
-          pair: latestOHLC.pair,
-          timestamp: latestOHLC.timestamp,
-          close: latestOHLC.close
+          pair: latestOHLC.ticker,
+          timestamp: latestOHLC.date_utc,
+          close: latestOHLC.c
         });
         return {
           success: true,
@@ -121,20 +123,34 @@ class OHLCService {
    */
   formatOHLCForContext(ohlcData: any): string {
     console.log('🔍 Données OHLC à formater:', ohlcData);
+    console.log('🔍 Propriétés disponibles dans ohlcData:', Object.keys(ohlcData));
     
-    // Mapper les propriétés selon le format reçu
-    const pair = ohlcData.pair || ohlcData.ticker || 'N/A';
-    const timestamp = ohlcData.timestamp || ohlcData.date_utc || ohlcData.date;
-    const open = ohlcData.open || ohlcData.o;
-    const high = ohlcData.high || ohlcData.h;
-    const low = ohlcData.low || ohlcData.l;
-    const close = ohlcData.close || ohlcData.c;
-    const volume = ohlcData.volume || ohlcData.v;
-    const timeframe = ohlcData.timeframe || ohlcData.tf || 'N/A';
+    // Mapper les propriétés selon le format reçu (priorité aux formats courts du webhook)
+    const pair = ohlcData.ticker || ohlcData.pair || ohlcData.symbol || ohlcData.instrument || 'N/A';
+    const timestamp = ohlcData.date_utc || ohlcData.timestamp || ohlcData.date || ohlcData.time || ohlcData.datetime;
+    const open = ohlcData.o || ohlcData.open || ohlcData.Open;
+    const high = ohlcData.h || ohlcData.high || ohlcData.High;
+    const low = ohlcData.l || ohlcData.low || ohlcData.Low;
+    const close = ohlcData.c || ohlcData.close || ohlcData.Close;
+    const volume = ohlcData.v || ohlcData.volume || ohlcData.Volume;
+    const volumeWeighted = ohlcData.vw || ohlcData.volume_weighted || ohlcData.VolumeWeighted;
+    const timeframe = ohlcData.t || ohlcData.timeframe || ohlcData.tf || ohlcData.interval || 'N/A';
+    const tradesCount = ohlcData.n || ohlcData.trades_count || ohlcData.tradesCount;
     
     console.log('📊 Propriétés mappées:', {
-      pair, timestamp, open, high, low, close, volume, timeframe
+      pair, timestamp, open, high, low, close, volume, volumeWeighted, timeframe, tradesCount
     });
+    
+    // Vérifier si on a au moins les données essentielles
+    if (!pair || pair === 'N/A') {
+      console.warn('⚠️ Aucune paire trouvée dans les données OHLC');
+      return '=== DONNÉES OHLC ===\nAucune donnée OHLC disponible (paire non trouvée)\n===============================';
+    }
+    
+    if (!timestamp || timestamp === 'N/A') {
+      console.warn('⚠️ Aucun timestamp trouvé dans les données OHLC');
+      return '=== DONNÉES OHLC ===\nAucune donnée OHLC disponible (timestamp non trouvé)\n===============================';
+    }
     
     // Toujours utiliser UTC pour Grok
     const date = timestamp ? formatForGrok(timestamp) : 'N/A';
@@ -148,7 +164,9 @@ High: ${high || 'N/A'}
 Low: ${low || 'N/A'}
 Close: ${close || 'N/A'}
 ${volume ? `Volume: ${volume}` : ''}
+${volumeWeighted ? `Volume Pondéré: ${volumeWeighted}` : ''}
 ${timeframe ? `Timeframe: ${timeframe}` : ''}
+${tradesCount ? `Nombre de Trades: ${tradesCount}` : ''}
 ===============================`;
   }
 

@@ -141,7 +141,6 @@ Tu dois structurer toutes tes réponses en utilisant les règles de formatage Ma
 *   **Utilise des tableaux** pour présenter les données structurées.
     *   *Exemple* :
         | Niveau | Prix | Action |
-        |--------|------|--------|
         | Entrée | 1.2345 | BUY |
         | SL | 1.2300 | Exit |
         | TP | 1.2400 | Exit |

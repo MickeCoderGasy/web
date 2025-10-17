@@ -86,8 +86,14 @@ class GrokService {
   }
 
   // Construire le contexte à partir de l'analyse sélectionnée
-  private async buildContext(conversationHistory?: Array<{role: string, content: string}>) {
+  private async buildContext(
+    conversationHistory?: Array<{role: string, content: string}>,
+    isFirstMessage: boolean = false
+  ) {
     let context = '';
+    console.log('🔧 === CONSTRUCTION DU CONTEXTE GROK ===');
+    console.log('🎯 Premier message?', isFirstMessage);
+    console.log('📚 Historique fourni:', conversationHistory?.length || 0, 'messages');
 
     // Ajouter l'historique de la conversation si disponible
     if (conversationHistory && conversationHistory.length > 0) {
@@ -102,13 +108,20 @@ class GrokService {
       context += '=== FIN DE L\'HISTORIQUE ===\n\n';
       
       console.log('📚 Historique envoyé à Grok:', recentHistory.length, 'messages');
+      console.log('📚 Contenu historique:', context.substring(0, 200) + '...');
+    } else if (!isFirstMessage) {
+      console.log('💬 Message suivant - Seulement l\'historique envoyé à Grok');
     }
 
-    if (this.contextSettings.enabled && this.contextSettings.selectedAnalysisId) {
+    // Ajouter le contexte complet SEULEMENT au premier message
+    if (isFirstMessage && this.contextSettings.enabled && this.contextSettings.selectedAnalysisId) {
+      console.log('🎯 Premier message - Envoi du contexte complet à Grok');
       try {
         const selectedAnalysis = await analysisHistoryService.getAnalysisById(this.contextSettings.selectedAnalysisId);
         if (selectedAnalysis) {
-          context += analysisHistoryService.formatAnalysisForContext(selectedAnalysis);
+          const analysisContext = analysisHistoryService.formatAnalysisForContext(selectedAnalysis);
+          context += analysisContext;
+          console.log('📊 Contexte analyse ajouté:', analysisContext.substring(0, 200) + '...');
           
           // Ajouter les données complètes de l'analyse pour plus de contexte
           if (selectedAnalysis.result) {
@@ -164,6 +177,7 @@ class GrokService {
               
               console.log('📈 Contexte OHLC généré:', ohlcContext);
               console.log('📏 Taille du contexte OHLC:', ohlcContext.length, 'caractères');
+              console.log('📈 Contenu OHLC:', ohlcContext.substring(0, 200) + '...');
               
               context += ohlcContext;
               console.log('✅ Contexte enrichi avec les données OHLC');
@@ -179,11 +193,20 @@ class GrokService {
       }
     }
 
+    console.log('🔧 === FIN CONSTRUCTION CONTEXTE ===');
+    console.log('📏 Taille finale du contexte:', context.length, 'caractères');
+    console.log('📄 Contenu final du contexte:', context.substring(0, 500) + (context.length > 500 ? '...' : ''));
+    console.log('🔧 === FIN CONSTRUCTION CONTEXTE ===');
+    
     return context;
   }
 
   // Envoyer un message à Grok avec contexte
-  async sendMessage(userMessage: string, conversationHistory?: Array<{role: string, content: string}>): Promise<GrokResponse> {
+  async sendMessage(
+    userMessage: string, 
+    conversationHistory?: Array<{role: string, content: string}>,
+    isFirstMessage: boolean = false
+  ): Promise<GrokResponse> {
     try {
       // Vérifier la configuration
       if (!this.config.apiKey) {
@@ -195,8 +218,18 @@ class GrokService {
         throw new Error('Aucune analyse sélectionnée. Veuillez sélectionner une analyse dans les paramètres de contexte.');
       }
 
-      const context = await this.buildContext(conversationHistory);
+      const context = await this.buildContext(conversationHistory, isFirstMessage);
       const fullUserMessage = userMessage + context;
+
+      console.log('🚀 === DONNÉES ENVOYÉES À GROK (sendMessage) ===');
+      console.log('📝 Message utilisateur original:', userMessage);
+      console.log('📊 Contexte généré:', context);
+      console.log('📏 Taille du contexte:', context.length, 'caractères');
+      console.log('🔗 Message complet envoyé:', fullUserMessage);
+      console.log('📏 Taille totale du message:', fullUserMessage.length, 'caractères');
+      console.log('🎯 Premier message?', isFirstMessage);
+      console.log('📚 Historique de conversation:', conversationHistory?.length || 0, 'messages');
+      console.log('🚀 === FIN DES DONNÉES GROK ===');
 
       const messages: GrokMessage[] = [
         {
@@ -249,7 +282,8 @@ class GrokService {
   async sendMessageStream(
     userMessage: string,
     onChunk?: (chunk: string) => void,
-    conversationHistory?: Array<{role: string, content: string}>
+    conversationHistory?: Array<{role: string, content: string}>,
+    isFirstMessage: boolean = false
   ): Promise<string> {
     try {
       // Vérifier la configuration
@@ -262,8 +296,18 @@ class GrokService {
         throw new Error('Aucune analyse sélectionnée. Veuillez sélectionner une analyse dans les paramètres de contexte.');
       }
 
-      const context = await this.buildContext(conversationHistory);
+      const context = await this.buildContext(conversationHistory, isFirstMessage);
       const fullUserMessage = userMessage + context;
+
+      console.log('🚀 === DONNÉES ENVOYÉES À GROK (sendMessage) ===');
+      console.log('📝 Message utilisateur original:', userMessage);
+      console.log('📊 Contexte généré:', context);
+      console.log('📏 Taille du contexte:', context.length, 'caractères');
+      console.log('🔗 Message complet envoyé:', fullUserMessage);
+      console.log('📏 Taille totale du message:', fullUserMessage.length, 'caractères');
+      console.log('🎯 Premier message?', isFirstMessage);
+      console.log('📚 Historique de conversation:', conversationHistory?.length || 0, 'messages');
+      console.log('🚀 === FIN DES DONNÉES GROK ===');
 
       const messages: GrokMessage[] = [
         {

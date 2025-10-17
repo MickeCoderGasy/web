@@ -145,12 +145,26 @@ export function AIChat() {
             content: msg.content
           }));
 
+        // Détecter si c'est le premier message de la conversation
+        // Un message est considéré comme "premier" s'il n'y a que des messages d'assistant dans l'historique
+        // OU si on vient de charger une session (car Grok n'a pas de mémoire persistante)
+        const userMessages = conversationHistory.filter(msg => msg.role === 'user');
+        const isFirstMessage = userMessages.length === 0;
+        
+        console.log('🔍 Détection premier message:', {
+          totalMessages: conversationHistory.length,
+          userMessages: userMessages.length,
+          currentSessionId: currentSessionId,
+          isFirstMessage: isFirstMessage
+        });
+
         const response = await grokService.sendMessageStream(
           userInput,
           (chunk) => {
             setStreamingResponse(prev => prev + chunk);
           },
-          conversationHistory
+          conversationHistory,
+          isFirstMessage
         );
 
                const assistantMessage: Message = {
