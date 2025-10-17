@@ -29,7 +29,7 @@ export interface OHLCRequest {
 
 export interface OHLCResponse {
   success: boolean;
-  data?: OHLCData;
+  data?: OHLCData | OHLCData[]; // Peut être une seule donnée ou un tableau
   error?: string;
 }
 
@@ -73,19 +73,23 @@ class OHLCService {
       
       // Le webhook retourne directement un tableau de données OHLC
       if (Array.isArray(data) && data.length > 0) {
-        // Prendre la donnée la plus récente (première du tableau)
-        const latestOHLC = data[0];
-        console.log(`✅ Données OHLC récupérées (${data.length} éléments disponibles):`, latestOHLC);
-        console.log('📊 Structure complète de la première donnée:', JSON.stringify(latestOHLC, null, 2));
-        console.log('📊 Propriétés disponibles:', Object.keys(latestOHLC));
-        console.log('📊 Première donnée OHLC sélectionnée:', {
-          pair: latestOHLC.ticker,
-          timestamp: latestOHLC.date_utc,
-          close: latestOHLC.c
+        // Retourner TOUT le tableau de données, pas seulement la première
+        console.log(`✅ Données OHLC récupérées (${data.length} éléments disponibles)`);
+        console.log('📊 Structure de la première donnée:', JSON.stringify(data[0], null, 2));
+        console.log('📊 Propriétés disponibles:', Object.keys(data[0]));
+        console.log('📊 Première donnée OHLC:', {
+          pair: data[0].ticker,
+          timestamp: data[0].date_utc,
+          close: data[0].c
+        });
+        console.log('📊 Dernière donnée OHLC:', {
+          pair: data[data.length - 1].ticker,
+          timestamp: data[data.length - 1].date_utc,
+          close: data[data.length - 1].c
         });
         return {
           success: true,
-          data: latestOHLC
+          data: data // Retourner tout le tableau
         };
       } else if (data.success && data.data) {
         // Format encapsulé (fallback)
@@ -138,7 +142,8 @@ class OHLCService {
     // Filtrer les données postérieures à l'analyse et timeframe M1
     const filteredData = ohlcDataArray.filter(item => {
       const itemTimestamp = new Date(item.date_utc || item.timestamp || item.date || item.time || item.datetime).getTime();
-      const timeframe = item.t || item.timeframe || item.tf || item.interval || 'N/A';
+      // Corriger la récupération du timeframe - utiliser la bonne propriété
+      const timeframe = item.timeframe || item.tf || item.interval || item.t || 'N/A';
       const isAfterAnalysis = itemTimestamp > analysisTimestamp;
       const isM1 = timeframe === 'M1' || timeframe === '1m' || timeframe === '1min';
       
@@ -147,13 +152,21 @@ class OHLCService {
         isAfterAnalysis,
         timeframe,
         isM1,
-        keep: isAfterAnalysis && isM1
+        keep: isAfterAnalysis && isM1,
+        // Ajouter plus de détails pour le debug
+        rawTimeframe: item.timeframe,
+        rawT: item.t,
+        rawTf: item.tf
       });
       
       return isAfterAnalysis && isM1;
     });
 
     console.log('📊 Données filtrées:', filteredData.length, 'sur', ohlcDataArray.length);
+    console.log('📊 Période des données reçues:', {
+      première: ohlcDataArray.length > 0 ? formatForGrok(ohlcDataArray[0].date_utc || ohlcDataArray[0].timestamp) : 'N/A',
+      dernière: ohlcDataArray.length > 0 ? formatForGrok(ohlcDataArray[ohlcDataArray.length - 1].date_utc || ohlcDataArray[ohlcDataArray.length - 1].timestamp) : 'N/A'
+    });
 
     if (filteredData.length === 0) {
       console.warn('⚠️ Aucune donnée OHLC M1 postérieure à l\'analyse trouvée');
