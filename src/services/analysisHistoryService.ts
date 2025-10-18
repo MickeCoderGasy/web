@@ -7,7 +7,7 @@ export interface AnalysisHistoryItem {
   pair: string;
   timestamp: string;
   status: 'completed' | 'failed' | 'pending';
-  signal?: 'BUY' | 'SELL' | 'HOLD';
+  signal?: 'BUY' | 'SELL';
   confidence?: number;
   confluenceScore?: number;
   summary?: string;
@@ -24,24 +24,37 @@ class AnalysisHistoryService {
       signal_metadata: entry.signal_metadata
     });
 
-    // Extraire le signal et la confiance depuis signal_metadata
-    const signalData = entry.signal_metadata?.signals?.[0];
-    console.log('📊 Signal data extraite:', signalData);
+    // Extraire le signal depuis les différentes sources possibles
+    let signal: 'BUY' | 'SELL' | undefined = undefined;
+    let confidence = 0;
     
-    // Essayer différentes sources pour le signal
-    let signal = signalData?.signal || 'HOLD';
-    let confidence = signalData?.confidence || 0;
-    
-    // Vérifier si le signal est dans les métadonnées principales
-    if (entry.signal_metadata?.signal) {
-      signal = entry.signal_metadata.signal;
-      console.log('✅ Signal trouvé dans signal_metadata.signal:', signal);
+    // 1. Vérifier d'abord dans signals array (structure principale)
+    if (entry.signals && Array.isArray(entry.signals) && entry.signals.length > 0) {
+      const firstSignal = entry.signals[0];
+      if (firstSignal.signal === 'BUY' || firstSignal.signal === 'SELL') {
+        signal = firstSignal.signal;
+        confidence = firstSignal.confidence || 0;
+        console.log('✅ Signal trouvé dans signals array:', signal);
+      }
     }
     
-    // Vérifier si le signal est dans les données de résultat (si disponible)
-    if ((entry as any).result?.signal) {
-      signal = (entry as any).result.signal;
-      console.log('✅ Signal trouvé dans result.signal:', signal);
+    // 2. Vérifier dans signal_metadata
+    if (!signal && entry.signal_metadata?.signal) {
+      if (entry.signal_metadata.signal === 'BUY' || entry.signal_metadata.signal === 'SELL') {
+        signal = entry.signal_metadata.signal;
+        confidence = entry.signal_metadata.confidence || 0;
+        console.log('✅ Signal trouvé dans signal_metadata:', signal);
+      }
+    }
+    
+    // 3. Vérifier dans signal_metadata.signals
+    if (!signal && entry.signal_metadata?.signals && Array.isArray(entry.signal_metadata.signals)) {
+      const signalData = entry.signal_metadata.signals[0];
+      if (signalData?.signal === 'BUY' || signalData?.signal === 'SELL') {
+        signal = signalData.signal;
+        confidence = signalData.confidence || 0;
+        console.log('✅ Signal trouvé dans signal_metadata.signals:', signal);
+      }
     }
     
     const confluenceScore = entry.signal_metadata?.confluence_score || 0;
@@ -56,7 +69,7 @@ class AnalysisHistoryService {
       pair: entry.pair,
       timestamp: entry.generated_at || new Date().toISOString(),
       status: this.mapStatus(entry.Status),
-      signal: signal as 'BUY' | 'SELL' | 'HOLD',
+      signal: signal, // Peut être undefined si pas de signal
       confidence,
       confluenceScore,
       summary,
@@ -79,8 +92,8 @@ class AnalysisHistoryService {
   }
 
   // Générer un résumé basé sur les données
-  private generateSummary(entry: SignalsLogEntry, signal: string, confidence: number): string {
-    if (signal === 'HOLD') {
+  private generateSummary(entry: SignalsLogEntry, signal: 'BUY' | 'SELL' | undefined, confidence: number): string {
+    if (!signal) {
       return `Pas de signal clair sur ${entry.pair}. Marché en consolidation.`;
     }
     

@@ -21,8 +21,10 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { fetchMarketNews, formatTimeAgo, extractSource, NewsItem } from "@/services/newsService";
 import { fetchAiInsight, MAJOR_PAIRS, MajorPair } from "@/services/aiInsightService";
+import analysisHistoryService, { AnalysisHistoryItem } from "@/services/analysisHistoryService";
 import { 
   Select,
   SelectContent,
@@ -75,11 +77,7 @@ const portfolioHoldings: PortfolioHolding[] = [
   { symbol: "NVDA", name: "NVIDIA Corp.", shares: 15, avgPrice: 450.00, currentPrice: 495.22, totalValue: 7428.30, changePercent: 10.05, allocation: 28 },
 ];
 
-const recentTransactions: Transaction[] = [
-  { type: "buy", symbol: "NVDA", shares: 5, price: 495.22, time: "2h ago" },
-  { type: "sell", symbol: "TSLA", shares: 10, price: 242.84, time: "5h ago" },
-  { type: "buy", symbol: "AAPL", shares: 15, price: 178.52, time: "1d ago" },
-];
+// Recent transactions removed - now using real analysis data
 
 // Default fallback news
 const defaultNews = [
@@ -98,11 +96,14 @@ export function Dashboard() {
   const riskScore = 68;
 
   const { token } = useAuth();
+  const navigate = useNavigate();
   const [marketNews, setMarketNews] = useState<NewsItem[]>(defaultNews);
   const [newsLoading, setNewsLoading] = useState(true);
   const [selectedPair, setSelectedPair] = useState<MajorPair>("EUR/USD");
   const [aiInsight, setAiInsight] = useState<string>("");
   const [insightLoading, setInsightLoading] = useState(true);
+  const [recentAnalyses, setRecentAnalyses] = useState<AnalysisHistoryItem[]>([]);
+  const [analysesLoading, setAnalysesLoading] = useState(true);
 
   // Load market news
   useEffect(() => {
@@ -131,6 +132,54 @@ export function Dashboard() {
     const interval = setInterval(loadNews, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [token]);
+
+  // Load recent analyses
+  useEffect(() => {
+    const loadRecentAnalyses = async () => {
+      try {
+        setAnalysesLoading(true);
+        const analyses = await analysisHistoryService.getRecentAnalyses(10);
+        // Filtrer seulement les analyses avec un signal BUY ou SELL
+        const analysesWithSignal = analyses.filter(analysis => 
+          analysis.signal === 'BUY' || analysis.signal === 'SELL'
+        ).slice(0, 3); // Prendre seulement les 3 premiers
+        setRecentAnalyses(analysesWithSignal);
+      } catch (error) {
+        console.error('Failed to load recent analyses:', error);
+        setRecentAnalyses([]);
+      } finally {
+        setAnalysesLoading(false);
+      }
+    };
+
+    loadRecentAnalyses();
+  }, []);
+
+  // Fonction pour formater la date et l'heure
+  const formatDateTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return {
+      date: date.toLocaleDateString('fr-FR'),
+      time: date.toLocaleTimeString('fr-FR', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      }),
+      fullDateTime: date.toLocaleString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    };
+  };
+
+  // Fonction pour naviguer vers l'historique avec l'analyse sélectionnée
+  const handleAnalysisClick = (analysis: AnalysisHistoryItem) => {
+    // Stocker l'ID de l'analyse dans le localStorage pour que l'historique puisse l'afficher
+    localStorage.setItem('selectedAnalysisId', analysis.id);
+    navigate('/history');
+  };
 
   // Load AI insights when pair changes
   useEffect(() => {
@@ -403,40 +452,91 @@ export function Dashboard() {
 
       {/* Two Column Layout - Activity & News */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Activity */}
+        {/* Recent Activity - Analyses */}
         <Card className="glass-card border-primary/10">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-primary" />
+              <Activity className="w-5 h-5 text-primary" />
               Recent Activity
+              {analysesLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {recentTransactions.map((transaction, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 border border-border/50"
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-lg ${transaction.type === "buy" ? "bg-success/20" : "bg-destructive/20"} flex items-center justify-center`}>
-                    {transaction.type === "buy" ? (
-                      <TrendingUp className="w-4 h-4 text-success" />
-                    ) : (
-                      <TrendingDown className="w-4 h-4 text-destructive" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-semibold">
-                      {transaction.type === "buy" ? "Bought" : "Sold"} {transaction.symbol}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {transaction.shares} shares @ ${transaction.price.toFixed(2)}
-                    </p>
-                  </div>
-                </div>
-                <span className="text-xs text-muted-foreground">{transaction.time}</span>
+            {analysesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                <span className="ml-2 text-sm text-muted-foreground">Chargement des analyses...</span>
               </div>
-            ))}
+            ) : recentAnalyses.length === 0 ? (
+              <div className="text-center py-8">
+                <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Aucune analyse récente avec signal</p>
+              </div>
+            ) : (
+              recentAnalyses.map((analysis) => {
+                const { date, time, fullDateTime } = formatDateTime(analysis.timestamp);
+                return (
+                  <div
+                    key={analysis.id}
+                    className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 border border-border/50 hover:bg-secondary/50 transition-all duration-300 cursor-pointer group"
+                    onClick={() => handleAnalysisClick(analysis)}
+                    title={`Cliquer pour voir les détails de l'analyse ${analysis.pair}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg ${
+                        analysis.signal === "BUY" ? "bg-success/20" : 
+                        analysis.signal === "SELL" ? "bg-destructive/20" : 
+                        "bg-muted/20"
+                      } flex items-center justify-center group-hover:scale-105 transition-transform`}>
+                        {analysis.signal === "BUY" ? (
+                          <TrendingUp className="w-4 h-4 text-success" />
+                        ) : analysis.signal === "SELL" ? (
+                          <TrendingDown className="w-4 h-4 text-destructive" />
+                        ) : (
+                          <Activity className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge variant="outline" className="text-xs font-mono">
+                            {analysis.pair}
+                          </Badge>
+                          <Badge 
+                            variant={analysis.signal === "BUY" ? "default" : analysis.signal === "SELL" ? "destructive" : "secondary"}
+                            className="text-xs"
+                          >
+                            {analysis.signal}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Clock className="w-3 h-3" />
+                          <span>{date}</span>
+                          <span>•</span>
+                          <span>{time}</span>
+                        </div>
+                        {analysis.confidence && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Confiance: {analysis.confidence}%
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      {analysis.confluenceScore && analysis.confluenceScore > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Confluence: {analysis.confluenceScore}/100
+                        </p>
+                      )}
+                      <div className="mt-1">
+                        <span className="text-xs text-primary group-hover:text-primary/80 transition-colors">
+                          Voir détails →
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </CardContent>
         </Card>
 

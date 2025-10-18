@@ -72,6 +72,64 @@ export function History() {
     fetchFilterOptions();
   }, []);
 
+  // Vérifier s'il y a une analyse sélectionnée depuis le Dashboard
+  useEffect(() => {
+    const selectedAnalysisId = localStorage.getItem('selectedAnalysisId');
+    if (selectedAnalysisId) {
+      // Nettoyer le localStorage
+      localStorage.removeItem('selectedAnalysisId');
+      
+      // Trouver et afficher l'analyse correspondante
+      const findAndDisplayAnalysis = async () => {
+        try {
+          const logs = await SignalsLogService.fetchSignalsLogs();
+          const targetLog = logs.find(log => log.signal_id === selectedAnalysisId);
+          
+          if (targetLog) {
+            console.log('🎯 [HISTORY COMPONENT] Affichage automatique de l\'analyse:', selectedAnalysisId);
+            
+            const analysisData = {
+              // Propriétés de niveau racine attendues par AnalysisResults
+              pair: targetLog.pair,
+              agent_version: targetLog.agent_version,
+              Status: targetLog.Status,
+              generated_at: targetLog.generated_at,
+              signal_id: targetLog.signal_id,
+              user: targetLog.user,
+              
+              // Données imbriquées
+              signals: targetLog.signals,
+              market_validation: targetLog.market_validation,
+              market_alerts: targetLog.market_alerts,
+              no_signal_analysis: targetLog.no_signal_analysis,
+              fundamental_context: targetLog.fundamental_context,
+              signal_metadata: targetLog.signal_metadata,
+              metadata_info: targetLog.metadata_info
+            };
+            
+            setSelectedAnalysis(analysisData);
+          } else {
+            console.warn('⚠️ [HISTORY COMPONENT] Analyse non trouvée:', selectedAnalysisId);
+            toast({
+              title: "Analyse non trouvée",
+              description: "L'analyse demandée n'a pas été trouvée dans l'historique.",
+              variant: "destructive",
+            });
+          }
+        } catch (error) {
+          console.error('❌ [HISTORY COMPONENT] Erreur lors de la recherche de l\'analyse:', error);
+          toast({
+            title: "Erreur",
+            description: "Impossible de charger l'analyse sélectionnée.",
+            variant: "destructive",
+          });
+        }
+      };
+      
+      findAndDisplayAnalysis();
+    }
+  }, []);
+
   useEffect(() => {
     fetchSignalLogs();
   }, [selectedPair, selectedStatus]);

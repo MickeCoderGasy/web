@@ -38,7 +38,6 @@ export function AIChat() {
   const [isLoading, setIsLoading] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState<{ [key: string]: boolean }>({});
   const [contextSettings, setContextSettings] = useState<ContextSettings>(defaultContextSettings);
-  const [useGrok, setUseGrok] = useState(true);
   const [streamingResponse, setStreamingResponse] = useState("");
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -68,7 +67,7 @@ export function AIChat() {
       const session = await chatHistoryServiceSupabase.createChatSession(
         title,
         contextSettings.selectedAnalysisId || undefined,
-        useGrok ? 'grok' : 'standard'
+        'grok'
       );
       setCurrentSessionId(session.id);
       setMessages(initialMessages);
@@ -106,7 +105,6 @@ export function AIChat() {
         content: msg.content,
         analysis: undefined // On ne stocke pas les analyses dans l'historique
       })));
-      setUseGrok(session.model === 'grok');
       
       // Resélectionner automatiquement le contexte correspondant à la session
       if (session.contextAnalysisId) {
@@ -306,7 +304,7 @@ export function AIChat() {
     saveMessageToHistory({
       role: 'user',
       content: userInput,
-      model: useGrok ? 'grok' : 'standard'
+      model: 'grok'
     });
     
     setInput("");
@@ -314,99 +312,61 @@ export function AIChat() {
     setStreamingResponse("");
 
     try {
-      if (useGrok) {
-        // Vérifier qu'une analyse est sélectionnée avant d'envoyer à Grok
-        if (!contextSettings.selectedAnalysisId) {
-          throw new Error('Veuillez d\'abord sélectionner une analyse dans les paramètres de contexte (icône ⚙️) pour utiliser Grok.');
-        }
-
-        // Utiliser Grok avec contexte
-        // Préparer l'historique de conversation pour Grok
-        const conversationHistory = messages
-          .filter(msg => msg.role !== 'assistant' || !msg.analysis) // Exclure les messages avec analyses
-          .map(msg => ({
-            role: msg.role,
-            content: msg.content
-          }));
-
-        // Détecter si c'est le premier message de la conversation
-        // Un message est considéré comme "premier" s'il n'y a que des messages d'assistant dans l'historique
-        // OU si on vient de charger une session (car Grok n'a pas de mémoire persistante)
-        const userMessages = conversationHistory.filter(msg => msg.role === 'user');
-        const isFirstMessage = userMessages.length === 0 || !currentSessionId;
-        
-        console.log('🔍 Détection premier message:', {
-          totalMessages: conversationHistory.length,
-          userMessages: userMessages.length,
-          currentSessionId: currentSessionId,
-          isFirstMessage: isFirstMessage
-        });
-
-        // Debug du contexte Grok
-        const contextDebug = grokService.getContextDebugInfo();
-        console.log('🔧 Contexte Grok:', contextDebug);
-
-        const response = await grokService.sendMessageStream(
-          userInput,
-          (chunk) => {
-            setStreamingResponse(prev => prev + chunk);
-          },
-          conversationHistory,
-          isFirstMessage
-        );
-
-               const assistantMessage: Message = {
-                 id: (Date.now() + 1).toString(),
-                 role: "assistant",
-                 content: response,
-               };
-               setMessages((prev) => [...prev, assistantMessage]);
-               
-               // Sauvegarder la réponse de l'assistant
-               saveMessageToHistory({
-                 role: 'assistant',
-                 content: response,
-                 model: 'grok'
-               });
-               
-               setStreamingResponse("");
-      } else {
-        // Utiliser l'ancien service LLM
-        const isStockSymbol = /^[A-Za-z]{1,5}(\/[A-Za-z]{3})?$/.test(userInput);
-        
-        if (isStockSymbol) {
-          const analysis = await llmService.analyzeStock(userInput);
-                 const assistantMessage: Message = {
-                   id: (Date.now() + 1).toString(),
-                   role: "assistant",
-                   content: `Voici mon analyse pour **${analysis.symbol}**:`,
-                   analysis: analysis,
-                 };
-                 setMessages((prev) => [...prev, assistantMessage]);
-                 
-                 // Sauvegarder la réponse de l'assistant
-                 saveMessageToHistory({
-                   role: 'assistant',
-                   content: `Voici mon analyse pour **${analysis.symbol}**:`,
-                   model: 'standard'
-                 });
-      } else {
-        const response = await llmService.chat(userInput);
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: response,
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-        
-        // Sauvegarder la réponse de l'assistant
-        saveMessageToHistory({
-          role: 'assistant',
-          content: response,
-          model: 'standard'
-        });
-        }
+      // Vérifier qu'une analyse est sélectionnée avant d'envoyer à Grok
+      if (!contextSettings.selectedAnalysisId) {
+        throw new Error('Veuillez d\'abord sélectionner une analyse dans les paramètres de contexte (icône ⚙️) pour utiliser Grok.');
       }
+
+      // Utiliser Grok avec contexte
+      // Préparer l'historique de conversation pour Grok
+      const conversationHistory = messages
+        .filter(msg => msg.role !== 'assistant' || !msg.analysis) // Exclure les messages avec analyses
+        .map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }));
+
+      // Détecter si c'est le premier message de la conversation
+      // Un message est considéré comme "premier" s'il n'y a que des messages d'assistant dans l'historique
+      // OU si on vient de charger une session (car Grok n'a pas de mémoire persistante)
+      const userMessages = conversationHistory.filter(msg => msg.role === 'user');
+      const isFirstMessage = userMessages.length === 0 || !currentSessionId;
+      
+      console.log('🔍 Détection premier message:', {
+        totalMessages: conversationHistory.length,
+        userMessages: userMessages.length,
+        currentSessionId: currentSessionId,
+        isFirstMessage: isFirstMessage
+      });
+
+      // Debug du contexte Grok
+      const contextDebug = grokService.getContextDebugInfo();
+      console.log('🔧 Contexte Grok:', contextDebug);
+
+      const response = await grokService.sendMessageStream(
+        userInput,
+        (chunk) => {
+          setStreamingResponse(prev => prev + chunk);
+        },
+        conversationHistory,
+        isFirstMessage
+      );
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: response,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      
+      // Sauvegarder la réponse de l'assistant
+      saveMessageToHistory({
+        role: 'assistant',
+        content: response,
+        model: 'grok'
+      });
+      
+      setStreamingResponse("");
     } catch (error: any) {
       console.error('Chat error:', error);
       const errorMessage: Message = {
@@ -437,23 +397,22 @@ export function AIChat() {
   return (
     <div className="flex flex-col chat-fullscreen bg-background rounded-lg border border-border/50 overflow-hidden">
       {/* En-tête du chat */}
-      <ChatHeader
-        useGrok={useGrok}
-        onToggleModel={setUseGrok}
-        isGrokConfigured={isGrokConfigured()}
-        settings={contextSettings}
-        onSettingsChange={handleContextSettingsChange}
-        onSaveSettings={() => {
-          grokService.updateContextSettings(contextSettings);
-          toast({
-            title: "Paramètres sauvegardés",
-            description: "Les paramètres de contexte ont été mis à jour.",
-          });
-        }}
-        onShowHistory={() => setShowHistory(!showHistory)}
-        onNewSession={createNewSession}
-      />
-
+      <div className="sticky top-0 z-10">
+        <ChatHeader
+          isGrokConfigured={isGrokConfigured()}
+          settings={contextSettings}
+          onSettingsChange={handleContextSettingsChange}
+          onSaveSettings={() => {
+            grokService.updateContextSettings(contextSettings);
+            toast({
+              title: "Paramètres sauvegardés",
+              description: "Les paramètres de contexte ont été mis à jour.",
+            });
+          }}
+          onShowHistory={() => setShowHistory(!showHistory)}
+          onNewSession={createNewSession}
+        />
+      </div>
       {/* Panneau d'historique */}
       {showHistory && (
         <div className="border-b border-border/50 p-4 bg-secondary/10">
@@ -627,7 +586,7 @@ export function AIChat() {
           />
           
           {/* Bouton de rafraîchissement OHLC */}
-          {useGrok && contextSettings.selectedAnalysisId && (
+          {contextSettings.selectedAnalysisId && (
             <Button
               onClick={refreshOHLCAndResendContext}
               disabled={isLoading || isRefreshingOHLC}
@@ -651,7 +610,7 @@ export function AIChat() {
         </div>
         
         {/* Indicateur de rafraîchissement OHLC */}
-        {useGrok && contextSettings.selectedAnalysisId && (
+        {contextSettings.selectedAnalysisId && (
           <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
             <RefreshCw className="w-3 h-3" />
             <span>Bouton orange : Rafraîchir les données OHLC en temps réel</span>

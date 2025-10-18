@@ -10,6 +10,23 @@
   }
 }
 
+
+/* Assurer que l'en-tête reste en haut */
+.chat-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(10px);
+  background-color: hsl(var(--secondary) / 0.1);
+}
+
+/* Zone de messages avec scroll */
+.chat-messages-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .animate-slide-up {
   animation: slide-up 0.3s ease-out;
 }
@@ -29,11 +46,7 @@
   51%, 100% { opacity: 0; }
 }
 
-/* Styles pour le chat en plein écran */
-.chat-fullscreen {
-  height: calc(100vh - 2rem);
-  max-height: 800px;
-}
+
 
 /* Styles pour les paramètres dans le modal */
 .settings-modal {
@@ -62,10 +75,11 @@
   transform: translateY(-1px);
 }
 
-/* Styles pour l'en-tête du chat */
-.chat-header {
-  backdrop-filter: blur(10px);
-  background-color: hsl(var(--secondary) / 0.1);
+.chat-fullscreen {
+  height: calc(100vh - 2rem);
+  max-height: 800px;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Styles pour la zone de saisie */
