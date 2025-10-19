@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Button } from '@/components/ui/button';
 import { 
   Settings as SettingsIcon, 
   Info,
@@ -9,7 +10,8 @@ import {
   Clock,
   BarChart3,
   Zap,
-  RefreshCw
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import tokenUsageService from '@/services/tokenUsageService';
@@ -22,6 +24,14 @@ interface TokenUsageStats {
   maxTokens: number; // 5M tokens
   usagePercentage: number;
   lastUpdated: number;
+}
+
+// Interface pour l'estimation des requêtes
+interface RequestEstimation {
+  averageTokensPerRequest: number; // 53.3K tokens par requête
+  totalRequestsUsed: number;
+  estimatedRequestsRemaining: number;
+  maxRequests: number;
 }
 
 
@@ -37,6 +47,12 @@ export function Settings() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [requestEstimation, setRequestEstimation] = useState<RequestEstimation>({
+    averageTokensPerRequest: 53300, // 53.3K tokens par requête
+    totalRequestsUsed: 0,
+    estimatedRequestsRemaining: 0,
+    maxRequests: 0
+  });
 
   // Charger les statistiques
   useEffect(() => {
@@ -58,6 +74,10 @@ export function Settings() {
       // Récupérer les statistiques de tokens depuis Supabase
       const realTokenStats = await tokenUsageService.getTokenUsageStats(user.email);
       setTokenStats(realTokenStats);
+
+      // Calculer l'estimation des requêtes
+      const estimation = calculateRequestEstimation(realTokenStats);
+      setRequestEstimation(estimation);
     } catch (error) {
       console.error('Erreur lors du chargement des statistiques:', error);
       setError('Erreur lors du chargement des statistiques. Veuillez réessayer.');
@@ -74,6 +94,21 @@ export function Settings() {
       return `${(num / 1000).toFixed(1)}K`;
     }
     return num.toString();
+  };
+
+  // Calculer l'estimation des requêtes
+  const calculateRequestEstimation = (stats: TokenUsageStats): RequestEstimation => {
+    const averageTokensPerRequest = 53300; // 53.3K tokens par requête
+    const totalRequestsUsed = Math.floor(stats.totalTokens / averageTokensPerRequest);
+    const maxRequests = Math.floor(stats.maxTokens / averageTokensPerRequest);
+    const estimatedRequestsRemaining = Math.max(0, maxRequests - totalRequestsUsed);
+
+    return {
+      averageTokensPerRequest,
+      totalRequestsUsed,
+      estimatedRequestsRemaining,
+      maxRequests
+    };
   };
 
   // Formater la date
@@ -211,6 +246,80 @@ export function Settings() {
         </CardContent>
       </Card>
 
+      {/* Section Estimation des Requêtes */}
+      <Card className="glass-card border-primary/10">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-primary" />
+            Estimation des Requêtes
+            <Badge variant="outline" className="ml-auto">
+              {requestEstimation.estimatedRequestsRemaining} restantes
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Barre de progression des requêtes */}
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium">Requêtes utilisées</span>
+              <span className="text-sm text-muted-foreground">
+                {requestEstimation.totalRequestsUsed} / {requestEstimation.maxRequests}
+              </span>
+            </div>
+            <Progress 
+              value={(requestEstimation.totalRequestsUsed / requestEstimation.maxRequests) * 100} 
+              className="h-2"
+            />
+            <div className="text-xs text-muted-foreground">
+              Basé sur une moyenne de {formatNumber(requestEstimation.averageTokensPerRequest)} tokens par requête d'analyse
+            </div>
+          </div>
+
+          {/* Statistiques détaillées */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="text-center p-4 rounded-lg bg-muted/30">
+              <div className="text-2xl font-bold text-blue-600">
+                {requestEstimation.totalRequestsUsed}
+              </div>
+              <div className="text-sm text-muted-foreground">Requêtes utilisées</div>
+            </div>
+            
+            <div className="text-center p-4 rounded-lg bg-muted/30">
+              <div className="text-2xl font-bold text-green-600">
+                {requestEstimation.estimatedRequestsRemaining}
+              </div>
+              <div className="text-sm text-muted-foreground">Requêtes restantes</div>
+            </div>
+            
+            <div className="text-center p-4 rounded-lg bg-muted/30">
+              <div className="text-2xl font-bold text-purple-600">
+                {requestEstimation.maxRequests}
+              </div>
+              <div className="text-sm text-muted-foreground">Requêtes maximum</div>
+            </div>
+          </div>
+
+          {/* Informations supplémentaires */}
+          <div className="bg-muted/30 rounded-lg p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium">Informations sur l'estimation</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Moyenne par requête:</span>
+                <span className="ml-2 font-medium">{formatNumber(requestEstimation.averageTokensPerRequest)} tokens</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Taux d'utilisation:</span>
+                <span className="ml-2 font-medium">
+                  {((requestEstimation.totalRequestsUsed / requestEstimation.maxRequests) * 100).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Section Utilisateur */}
       <Card className="glass-card border-primary/10">
