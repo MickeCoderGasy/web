@@ -7,8 +7,10 @@ import { Loader2, History as HistoryIcon, Eye, Calendar, Clock, TrendingUp, Tren
 import { useToast } from "@/hooks/use-toast";
 import SignalsLogService, { SignalsLogEntry } from "@/services/signalsLogService";
 import { AnalysisResults } from "@/components/AnalysisResults";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function History() {
+  const { user } = useAuth();
   const [signalLogs, setSignalLogs] = useState<SignalsLogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,15 +28,19 @@ export function History() {
       setError(null);
       setSelectedAnalysis(null);
 
-      console.log('🔍 [HISTORY COMPONENT] Fetching signal logs from Supabase...');
+      if (!user?.email) {
+        throw new Error('Vous devez être connecté pour voir l\'historique des analyses');
+      }
+
+      console.log('🔍 [HISTORY COMPONENT] Fetching signal logs from Supabase for user:', user.email);
       
-      // Récupérer les logs avec filtres
+      // Récupérer les logs avec filtres pour l'utilisateur connecté
       const filters = {
         ...(selectedPair && { pair: selectedPair }),
         ...(selectedStatus && { status: selectedStatus })
       };
       
-      const logs = await SignalsLogService.fetchSignalsLogs(filters);
+      const logs = await SignalsLogService.fetchSignalsLogsByUser(user.email, filters);
       setSignalLogs(logs);
       console.log('✅ [HISTORY COMPONENT] Signal logs loaded:', logs.length);
     } catch (err) {
@@ -52,16 +58,25 @@ export function History() {
 
   const fetchFilterOptions = async () => {
     try {
-      console.log('🔍 [HISTORY COMPONENT] Fetching filter options...');
+      if (!user?.email) {
+        console.log('⚠️ [HISTORY COMPONENT] User not authenticated, skipping filter options');
+        return;
+      }
+
+      console.log('🔍 [HISTORY COMPONENT] Fetching filter options for user:', user.email);
       
-      const [pairs, statuses] = await Promise.all([
-        SignalsLogService.fetchAvailablePairs(),
-        SignalsLogService.fetchAvailableStatuses()
-      ]);
+      // Récupérer les options de filtre basées sur les données de l'utilisateur
+      const userLogs = await SignalsLogService.fetchSignalsLogsByUser(user.email);
       
-      setAvailablePairs(pairs);
-      setAvailableStatuses(statuses);
-      console.log('✅ [HISTORY COMPONENT] Filter options loaded:', { pairs: pairs.length, statuses: statuses.length });
+      // Extraire les paires uniques des logs de l'utilisateur
+      const uniquePairs = [...new Set(userLogs.map(log => log.pair).filter(Boolean))];
+      
+      // Extraire les statuts uniques des logs de l'utilisateur
+      const uniqueStatuses = [...new Set(userLogs.map(log => log.Status).filter(Boolean))];
+      
+      setAvailablePairs(uniquePairs);
+      setAvailableStatuses(uniqueStatuses);
+      console.log('✅ [HISTORY COMPONENT] Filter options loaded:', { pairs: uniquePairs.length, statuses: uniqueStatuses.length });
     } catch (err) {
       console.error('❌ [HISTORY COMPONENT] Error fetching filter options:', err);
     }

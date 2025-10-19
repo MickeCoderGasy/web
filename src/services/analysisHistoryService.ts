@@ -15,6 +15,21 @@ export interface AnalysisHistoryItem {
 }
 
 class AnalysisHistoryService {
+  private currentUserId: string | null = null;
+
+  // Définir l'utilisateur actuel
+  setCurrentUser(userId: string | null) {
+    this.currentUserId = userId;
+  }
+
+  // Vérifier que l'utilisateur est connecté
+  private ensureUserAuthenticated(): string {
+    if (!this.currentUserId) {
+      throw new Error('Utilisateur non authentifié. Veuillez vous connecter.');
+    }
+    return this.currentUserId;
+  }
+
   // Convertir SignalsLogEntry vers AnalysisHistoryItem
   private convertToAnalysisHistoryItem(entry: SignalsLogEntry): AnalysisHistoryItem {
     console.log('🔍 Conversion des données d\'analyse:', {
@@ -106,7 +121,8 @@ class AnalysisHistoryService {
   // Récupérer l'historique des analyses depuis Supabase
   async getAnalysisHistory(): Promise<AnalysisHistoryItem[]> {
     try {
-      const signalsLogs = await SignalsLogService.fetchSignalsLogs();
+      const userId = this.ensureUserAuthenticated();
+      const signalsLogs = await SignalsLogService.fetchSignalsLogsByUser(userId);
       return signalsLogs.map(entry => this.convertToAnalysisHistoryItem(entry));
     } catch (error) {
       console.error('Erreur lors de la récupération de l\'historique:', error);
@@ -117,7 +133,8 @@ class AnalysisHistoryService {
   // Récupérer une analyse spécifique par ID
   async getAnalysisById(id: string): Promise<AnalysisHistoryItem | null> {
     try {
-      const signalsLogs = await SignalsLogService.fetchSignalsLogs();
+      const userId = this.ensureUserAuthenticated();
+      const signalsLogs = await SignalsLogService.fetchSignalsLogsByUser(userId);
       const entry = signalsLogs.find(log => log.signal_id === id);
       return entry ? this.convertToAnalysisHistoryItem(entry) : null;
     } catch (error) {
@@ -129,7 +146,8 @@ class AnalysisHistoryService {
   // Récupérer les analyses par paire
   async getAnalysesByPair(pair: string): Promise<AnalysisHistoryItem[]> {
     try {
-      const signalsLogs = await SignalsLogService.fetchSignalsLogs({ pair });
+      const userId = this.ensureUserAuthenticated();
+      const signalsLogs = await SignalsLogService.fetchSignalsLogsByUser(userId, { pair });
       return signalsLogs.map(entry => this.convertToAnalysisHistoryItem(entry));
     } catch (error) {
       console.error('Erreur lors de la récupération des analyses par paire:', error);
@@ -140,7 +158,8 @@ class AnalysisHistoryService {
   // Récupérer les analyses récentes (dernières N)
   async getRecentAnalyses(limit: number = 20): Promise<AnalysisHistoryItem[]> {
     try {
-      const signalsLogs = await SignalsLogService.fetchSignalsLogs();
+      const userId = this.ensureUserAuthenticated();
+      const signalsLogs = await SignalsLogService.fetchSignalsLogsByUser(userId);
       return signalsLogs
         .slice(0, limit)
         .map(entry => this.convertToAnalysisHistoryItem(entry));
@@ -194,6 +213,92 @@ class AnalysisHistoryService {
     });
     
     return context;
+  }
+
+  // Compter le nombre total d'analyses
+  async getTotalAnalysesCount(): Promise<number> {
+    try {
+      const userId = this.ensureUserAuthenticated();
+      const signalsLogs = await SignalsLogService.fetchSignalsLogsByUser(userId);
+      return signalsLogs.length;
+    } catch (error) {
+      console.error('Erreur lors du comptage des analyses:', error);
+      return 0;
+    }
+  }
+
+  // Compter le nombre de signaux trouvés (BUY ou SELL)
+  async getSignalsFoundCount(): Promise<number> {
+    try {
+      const userId = this.ensureUserAuthenticated();
+      const signalsLogs = await SignalsLogService.fetchSignalsLogsByUser(userId);
+      let count = 0;
+      
+      signalsLogs.forEach(entry => {
+        // Vérifier dans signals array
+        if (entry.signals && Array.isArray(entry.signals) && entry.signals.length > 0) {
+          const hasSignal = entry.signals.some(signal => 
+            signal.signal === 'BUY' || signal.signal === 'SELL'
+          );
+          if (hasSignal) count++;
+        }
+        // Vérifier dans signal_metadata
+        else if (entry.signal_metadata?.signal === 'BUY' || entry.signal_metadata?.signal === 'SELL') {
+          count++;
+        }
+        // Vérifier dans signal_metadata.signals
+        else if (entry.signal_metadata?.signals && Array.isArray(entry.signal_metadata.signals)) {
+          const hasSignal = entry.signal_metadata.signals.some((signal: any) => 
+            signal.signal === 'BUY' || signal.signal === 'SELL'
+          );
+          if (hasSignal) count++;
+        }
+      });
+      
+      return count;
+    } catch (error) {
+      console.error('Erreur lors du comptage des signaux trouvés:', error);
+      return 0;
+    }
+  }
+
+  // Compter le nombre de signaux non trouvés
+  async getSignalsNotFoundCount(): Promise<number> {
+    try {
+      const totalCount = await this.getTotalAnalysesCount();
+      const signalsFoundCount = await this.getSignalsFoundCount();
+      return totalCount - signalsFoundCount;
+    } catch (error) {
+      console.error('Erreur lors du comptage des signaux non trouvés:', error);
+      return 0;
+    }
+  }
+
+  // Obtenir les paires les plus analysées
+  async getMostAnalyzedPairs(limit: number = 5): Promise<{ pair: string; count: number }[]> {
+    try {
+      const userId = this.ensureUserAuthenticated();
+      const signalsLogs = await SignalsLogService.fetchSignalsLogsByUser(userId);
+      const pairCounts: { [key: string]: number } = {};
+      
+      // Compter les analyses par paire
+      signalsLogs.forEach(entry => {
+        if (entry.pair) {
+          pairCounts[entry.pair] = (pairCounts[entry.pair] || 0) + 1;
+        }
+      });
+      
+      // Convertir en array et trier par nombre d'analyses
+      const sortedPairs = Object.entries(pairCounts)
+        .map(([pair, count]) => ({ pair, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
+      
+      return sortedPairs;
+    } catch (error) {
+      console.error('Erreur lors de la récupération des paires les plus analysées:', error);
+      return [];
+    }
   }
 }
 

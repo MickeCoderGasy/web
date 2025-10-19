@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, MessageSquare, TrendingUp, History, LogOut, User } from "lucide-react";
+import { LayoutDashboard, MessageSquare, TrendingUp, History, Settings, LogOut, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -107,6 +107,10 @@ export function Navigation() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate("/settings")} className="cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" />
+                <span>Paramètres</span>
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Sign out</span>
@@ -154,13 +158,33 @@ export function Navigation() {
           </div>
           
           {/* Mobile User Menu */}
-          <button
-            onClick={handleSignOut}
-            className="flex flex-col items-center gap-1 px-2 py-2 rounded-xl transition-all duration-300 text-muted-foreground hover:text-foreground hover:bg-secondary/50 min-w-0 flex-1 group"
-          >
-            <LogOut className="w-5 h-5 group-hover:scale-110 transition-transform duration-300" />
-            <span className="text-xs font-medium truncate max-w-[60px]">Logout</span>
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex flex-col items-center gap-1 px-2 py-2 rounded-xl transition-all duration-300 text-muted-foreground hover:text-foreground hover:bg-secondary/50 min-w-0 flex-1 group">
+                <User className="w-5 h-5 group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-xs font-medium truncate max-w-[60px]">Compte</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end" forceMount>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">Account</p>
+                  <p className="text-xs leading-none text-muted-foreground">
+                    {user?.email}
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate("/settings")} className="cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" />
+                <span>Paramètres</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Sign out</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </nav>

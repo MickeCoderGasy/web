@@ -14,7 +14,9 @@ import {
   Wallet,
   Target,
   Shield,
-  Loader2
+  Loader2,
+  BarChart,
+  Trophy
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +27,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchMarketNews, formatTimeAgo, extractSource, NewsItem } from "@/services/newsService";
 import { fetchAiInsight, MAJOR_PAIRS, MajorPair } from "@/services/aiInsightService";
 import analysisHistoryService, { AnalysisHistoryItem } from "@/services/analysisHistoryService";
+import rsiService, { RSIData } from "@/services/rsiService";
 import { 
   Select,
   SelectContent,
@@ -33,59 +36,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-interface StockItem {
-  symbol: string;
-  name: string;
-  price: number;
-  change: number;
-  changePercent: number;
-}
-
-interface PortfolioHolding {
-  symbol: string;
-  name: string;
-  shares: number;
-  avgPrice: number;
-  currentPrice: number;
-  totalValue: number;
-  changePercent: number;
-  allocation: number;
-}
-
-interface Transaction {
-  type: "buy" | "sell";
-  symbol: string;
-  shares: number;
-  price: number;
-  time: string;
-}
-
-const watchlist: StockItem[] = [
-  { symbol: "AAPL", name: "Apple Inc.", price: 178.52, change: 2.34, changePercent: 1.33 },
-  { symbol: "GOOGL", name: "Alphabet Inc.", price: 139.28, change: -1.12, changePercent: -0.80 },
-  { symbol: "MSFT", name: "Microsoft Corp.", price: 378.91, change: 4.56, changePercent: 1.22 },
-  { symbol: "TSLA", name: "Tesla Inc.", price: 242.84, change: -3.21, changePercent: -1.30 },
-  { symbol: "NVDA", name: "NVIDIA Corp.", price: 495.22, change: 8.45, changePercent: 1.74 },
-  { symbol: "AMZN", name: "Amazon.com", price: 151.94, change: -2.18, changePercent: -1.41 },
-];
-
-// Removed static insights - now fetched dynamically
-
-const portfolioHoldings: PortfolioHolding[] = [
-  { symbol: "AAPL", name: "Apple Inc.", shares: 50, avgPrice: 170.00, currentPrice: 178.52, totalValue: 8926.00, changePercent: 5.01, allocation: 35 },
-  { symbol: "MSFT", name: "Microsoft Corp.", shares: 25, avgPrice: 360.00, currentPrice: 378.91, totalValue: 9472.75, changePercent: 5.25, allocation: 37 },
-  { symbol: "NVDA", name: "NVIDIA Corp.", shares: 15, avgPrice: 450.00, currentPrice: 495.22, totalValue: 7428.30, changePercent: 10.05, allocation: 28 },
-];
-
-// Recent transactions removed - now using real analysis data
 
 // Default fallback news
 const defaultNews = [
   { id: "1", title: "Market analysis in progress", description: "Loading latest market updates...", sentiment: "Neutral" as const, created_at: new Date().toISOString() },
 ];
-
-const topGainers = watchlist.filter(s => s.changePercent > 0).sort((a, b) => b.changePercent - a.changePercent).slice(0, 3);
-const topLosers = watchlist.filter(s => s.changePercent < 0).sort((a, b) => a.changePercent - b.changePercent).slice(0, 3);
 
 export function Dashboard() {
   const portfolioValue = 125840.52;
@@ -95,7 +50,7 @@ export function Dashboard() {
   const totalReturn = 24.7;
   const riskScore = 68;
 
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
   const [marketNews, setMarketNews] = useState<NewsItem[]>(defaultNews);
   const [newsLoading, setNewsLoading] = useState(true);
@@ -104,6 +59,26 @@ export function Dashboard() {
   const [insightLoading, setInsightLoading] = useState(true);
   const [recentAnalyses, setRecentAnalyses] = useState<AnalysisHistoryItem[]>([]);
   const [analysesLoading, setAnalysesLoading] = useState(true);
+  const [totalAnalysesCount, setTotalAnalysesCount] = useState<number>(0);
+  const [totalAnalysesLoading, setTotalAnalysesLoading] = useState(true);
+  const [signalsFoundCount, setSignalsFoundCount] = useState<number>(0);
+  const [signalsNotFoundCount, setSignalsNotFoundCount] = useState<number>(0);
+  const [signalsLoading, setSignalsLoading] = useState(true);
+  const [mostAnalyzedPairs, setMostAnalyzedPairs] = useState<{ pair: string; count: number }[]>([]);
+  const [pairsLoading, setPairsLoading] = useState(true);
+  const [overboughtPairs, setOverboughtPairs] = useState<RSIData[]>([]);
+  const [oversoldPairs, setOversoldPairs] = useState<RSIData[]>([]);
+  const [allRSIData, setAllRSIData] = useState<RSIData[]>([]);
+  const [rsiLoading, setRsiLoading] = useState(true);
+
+  // Initialiser l'utilisateur dans le service d'historique
+  useEffect(() => {
+    if (user?.email) {
+      analysisHistoryService.setCurrentUser(user.email);
+    } else {
+      analysisHistoryService.setCurrentUser(null);
+    }
+  }, [user?.email]);
 
   // Load market news
   useEffect(() => {
@@ -155,6 +130,95 @@ export function Dashboard() {
     loadRecentAnalyses();
   }, []);
 
+  // Load total analyses count
+  useEffect(() => {
+    const loadTotalAnalysesCount = async () => {
+      try {
+        setTotalAnalysesLoading(true);
+        const count = await analysisHistoryService.getTotalAnalysesCount();
+        setTotalAnalysesCount(count);
+      } catch (error) {
+        console.error('Failed to load total analyses count:', error);
+        setTotalAnalysesCount(0);
+      } finally {
+        setTotalAnalysesLoading(false);
+      }
+    };
+
+    loadTotalAnalysesCount();
+  }, []);
+
+  // Load signals count
+  useEffect(() => {
+    const loadSignalsCount = async () => {
+      try {
+        setSignalsLoading(true);
+        const [foundCount, notFoundCount] = await Promise.all([
+          analysisHistoryService.getSignalsFoundCount(),
+          analysisHistoryService.getSignalsNotFoundCount()
+        ]);
+        setSignalsFoundCount(foundCount);
+        setSignalsNotFoundCount(notFoundCount);
+      } catch (error) {
+        console.error('Failed to load signals count:', error);
+        setSignalsFoundCount(0);
+        setSignalsNotFoundCount(0);
+      } finally {
+        setSignalsLoading(false);
+      }
+    };
+
+    loadSignalsCount();
+  }, []);
+
+  // Load most analyzed pairs
+  useEffect(() => {
+    const loadMostAnalyzedPairs = async () => {
+      try {
+        setPairsLoading(true);
+        const pairs = await analysisHistoryService.getMostAnalyzedPairs(3); // Top 3 paires
+        setMostAnalyzedPairs(pairs);
+      } catch (error) {
+        console.error('Failed to load most analyzed pairs:', error);
+        setMostAnalyzedPairs([]);
+      } finally {
+        setPairsLoading(false);
+      }
+    };
+
+    loadMostAnalyzedPairs();
+  }, []);
+
+  // Load RSI data
+  useEffect(() => {
+    const loadRSIData = async () => {
+      try {
+        setRsiLoading(true);
+        const [allData, overbought, oversold] = await Promise.all([
+          rsiService.getAllRSIData(),
+          rsiService.getOverboughtPairs(),
+          rsiService.getOversoldPairs()
+        ]);
+        setAllRSIData(allData);
+        setOverboughtPairs(overbought);
+        setOversoldPairs(oversold);
+      } catch (error) {
+        console.error('Failed to load RSI data:', error);
+        setAllRSIData([]);
+        setOverboughtPairs([]);
+        setOversoldPairs([]);
+      } finally {
+        setRsiLoading(false);
+      }
+    };
+
+    loadRSIData();
+    
+    // Rafraîchir les données RSI toutes les 5 minutes
+    const interval = setInterval(loadRSIData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Fonction pour formater la date et l'heure
   const formatDateTime = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -203,35 +267,29 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Portfolio Overview - Main Card */}
+      {/* Analyses Overview - Main Card */}
       <div className="glass-card rounded-2xl p-6 border-2 border-primary/20 shadow-2xl shadow-primary/10">
         <div className="space-y-2">
-          <p className="text-sm text-muted-foreground font-medium">Total Portfolio Value</p>
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
-            ${portfolioValue.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-          </h1>
-          <div className="flex items-center gap-2 pt-2">
-            {dailyChange >= 0 ? (
-              <TrendingUp className="w-5 h-5 text-success" />
-            ) : (
-              <TrendingDown className="w-5 h-5 text-destructive" />
-            )}
-            <span
-              className={`text-lg font-semibold ${
-                dailyChange >= 0 ? "text-success" : "text-destructive"
-              }`}
-            >
-              {dailyChange >= 0 ? "+" : ""}${Math.abs(dailyChange).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-            </span>
-            <span
-              className={`text-sm ${
-                dailyChange >= 0 ? "text-success/80" : "text-destructive/80"
-              }`}
-            >
-              ({dailyChangePercent >= 0 ? "+" : ""}{dailyChangePercent.toFixed(2)}%)
-            </span>
-            <span className="text-xs text-muted-foreground ml-2">Today</span>
-          </div>
+          <p className="text-sm text-muted-foreground font-medium">Total d'Analyses Générées</p>
+          {totalAnalysesLoading ? (
+            <div className="flex items-center gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <span className="text-lg text-muted-foreground">Chargement...</span>
+            </div>
+          ) : (
+            <>
+              <h1 className="text-5xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+                {totalAnalysesCount.toLocaleString("fr-FR")}
+              </h1>
+              <div className="flex items-center gap-2 pt-2">
+                <BarChart className="w-5 h-5 text-primary" />
+                <span className="text-lg font-semibold text-primary">
+                  Analyses complètes
+                </span>
+                
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -241,11 +299,18 @@ export function Dashboard() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium">Monthly Return</p>
-                <p className="text-2xl font-bold text-success">+{monthlyReturn}%</p>
+                <p className="text-xs text-muted-foreground font-medium">Signaux Trouvés</p>
+                {signalsLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Chargement...</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold text-success">{signalsFoundCount}</p>
+                )}
               </div>
               <div className="w-12 h-12 rounded-xl bg-success/20 flex items-center justify-center">
-                <BarChart3 className="w-6 h-6 text-success" />
+                <TrendingUp className="w-6 h-6 text-success" />
               </div>
             </div>
           </CardContent>
@@ -255,11 +320,18 @@ export function Dashboard() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium">Total Return</p>
-                <p className="text-2xl font-bold text-success">+{totalReturn}%</p>
+                <p className="text-xs text-muted-foreground font-medium">Signaux Non Trouvés</p>
+                {signalsLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Chargement...</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold text-destructive">{signalsNotFoundCount}</p>
+                )}
               </div>
-              <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
-                <Target className="w-6 h-6 text-primary" />
+              <div className="w-12 h-12 rounded-xl bg-destructive/20 flex items-center justify-center">
+                <TrendingDown className="w-6 h-6 text-destructive" />
               </div>
             </div>
           </CardContent>
@@ -281,126 +353,169 @@ export function Dashboard() {
 
         <Card className="glass-card border-primary/10 hover:border-primary/30 transition-all duration-300">
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium">Holdings</p>
-                <p className="text-2xl font-bold">{portfolioHoldings.length}</p>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground font-medium">Paires les Plus Analysées</p>
+                <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
+                  <BarChart className="w-6 h-6 text-primary" />
+                </div>
               </div>
-              <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
-                <Wallet className="w-6 h-6 text-primary" />
-              </div>
+              {pairsLoading ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Chargement...</span>
+                </div>
+              ) : mostAnalyzedPairs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Aucune donnée disponible</p>
+              ) : (
+                <div className="space-y-2">
+                  {mostAnalyzedPairs.map((pairData, index) => {
+                    // Définir la couleur et l'icône selon le rang
+                    const getTrophyStyle = (index: number) => {
+                      switch (index) {
+                        case 0: // 1er place - Or
+                          return {
+                            icon: <Trophy className="w-4 h-4" />,
+                            color: "text-yellow-500",
+                            bgColor: "bg-yellow-500/20"
+                          };
+                        case 1: // 2ème place - Argent
+                          return {
+                            icon: <Trophy className="w-4 h-4" />,
+                            color: "text-gray-400",
+                            bgColor: "bg-gray-400/20"
+                          };
+                        case 2: // 3ème place - Bronze
+                          return {
+                            icon: <Trophy className="w-4 h-4" />,
+                            color: "text-amber-600",
+                            bgColor: "bg-amber-600/20"
+                          };
+                        default:
+                          return {
+                            icon: <Trophy className="w-4 h-4" />,
+                            color: "text-muted-foreground",
+                            bgColor: "bg-muted/20"
+                          };
+                      }
+                    };
+
+                    const trophyStyle = getTrophyStyle(index);
+
+                    return (
+                      <div key={pairData.pair} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-6 h-6 rounded-full ${trophyStyle.bgColor} flex items-center justify-center`}>
+                            <div className={trophyStyle.color}>
+                              {trophyStyle.icon}
+                            </div>
+                          </div>
+                          <span className="text-sm font-medium">{pairData.pair}</span>
+                        </div>
+                        <span className="text-sm font-bold text-primary">{pairData.count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Two Column Layout */}
+      {/* RSI Analysis - Full Width */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Portfolio Holdings */}
-        <Card className="glass-card border-primary/10">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <PieChart className="w-5 h-5 text-primary" />
-              Portfolio Holdings
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {portfolioHoldings.map((holding) => (
-              <div key={holding.symbol} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Badge variant="outline" className="font-mono font-bold">
-                      {holding.symbol}
-                    </Badge>
-                    <span className="text-sm text-muted-foreground">{holding.name}</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold">${holding.totalValue.toLocaleString()}</p>
-                    <p className={`text-xs ${holding.changePercent >= 0 ? "text-success" : "text-destructive"}`}>
-                      {holding.changePercent >= 0 ? "+" : ""}{holding.changePercent.toFixed(2)}%
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>{holding.allocation}% of portfolio</span>
-                    <span>{holding.shares} shares @ ${holding.currentPrice.toFixed(2)}</span>
-                  </div>
-                  <Progress value={holding.allocation} className="h-1.5" />
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        {/* Top Performers */}
-        <div className="space-y-4">
-          {/* Top Gainers */}
-          <Card className="glass-card border-success/20 bg-success/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-success">
-                <ArrowUpRight className="w-5 h-5" />
-                Top Gainers
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {topGainers.map((stock) => (
-                <div
-                  key={stock.symbol}
-                  className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 border border-border/50 hover:bg-secondary/50 transition-all duration-300"
-                >
-                  <div className="flex items-center gap-3">
-                    <Badge variant="outline" className="font-mono font-bold text-success">
-                      {stock.symbol}
-                    </Badge>
-                    <span className="text-sm text-muted-foreground hidden sm:inline">
-                      ${stock.price.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-success" />
-                    <span className="font-semibold text-success">
-                      +{stock.changePercent.toFixed(2)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          {/* Top Losers */}
+          {/* Suracheté */}
           <Card className="glass-card border-destructive/20 bg-destructive/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-destructive">
-                <ArrowDownRight className="w-5 h-5" />
-                Top Losers
+                
+                Suracheté 
+                {rsiLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {topLosers.map((stock) => (
-                <div
-                  key={stock.symbol}
-                  className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 border border-border/50 hover:bg-secondary/50 transition-all duration-300"
-                >
-                  <div className="flex items-center gap-3">
-                    <Badge variant="outline" className="font-mono font-bold text-destructive">
-                      {stock.symbol}
-                    </Badge>
-                    <span className="text-sm text-muted-foreground hidden sm:inline">
-                      ${stock.price.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <TrendingDown className="w-4 h-4 text-destructive" />
-                    <span className="font-semibold text-destructive">
-                      {stock.changePercent.toFixed(2)}%
-                    </span>
-                  </div>
+              {rsiLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-destructive" />
+                  <span className="ml-2 text-sm text-muted-foreground">Chargement RSI...</span>
                 </div>
-              ))}
+              ) : overboughtPairs.length === 0 ? (
+                <div className="text-center py-8">
+                  <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">Aucune paire surachetée</p>
+                </div>
+              ) : (
+                overboughtPairs.map((pair) => (
+                  <div
+                    key={pair.pair}
+                    className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 border border-border/50 hover:bg-secondary/50 transition-all duration-300"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Badge variant="outline" className="font-mono font-bold text-destructive">
+                        {pair.pair}
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">
+                        RSI: {pair.rsi.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-destructive" />
+                      <span className="font-semibold text-destructive">
+                        Suracheté
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
-        </div>
+
+          {/* Survente */}
+          <Card className="glass-card border-success/20 bg-success/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-success">
+                
+                Survente 
+                {rsiLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {rsiLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-success" />
+                  <span className="ml-2 text-sm text-muted-foreground">Chargement RSI...</span>
+                </div>
+              ) : oversoldPairs.length === 0 ? (
+                <div className="text-center py-8">
+                  <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">Aucune paire survente</p>
+                </div>
+              ) : (
+                oversoldPairs.map((pair) => (
+                  <div
+                    key={pair.pair}
+                    className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 border border-border/50 hover:bg-secondary/50 transition-all duration-300"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Badge variant="outline" className="font-mono font-bold text-success">
+                        {pair.pair}
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">
+                        RSI: {pair.rsi.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <TrendingDown className="w-4 h-4 text-success" />
+                      <span className="font-semibold text-success">
+                        Survente
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
       </div>
 
       {/* AI Insights */}
@@ -438,15 +553,198 @@ export function Dashboard() {
                   className="text-sm leading-relaxed whitespace-pre-wrap"
                   dangerouslySetInnerHTML={{ 
                     __html: aiInsight
+                      .replace(/^---+$/gm, '') // Supprimer seulement les lignes de tirets seules
+                      .replace(/^---+[\s]*$/gm, '') // Supprimer les lignes de tirets avec espaces
                       .replace(/\*\*(.+?)\*\*/g, '<strong class="text-foreground font-semibold">$1</strong>')
                       .replace(/\n/g, '<br />')
                       .replace(/- \*\*/g, '<br />• <strong class="text-foreground font-semibold">')
                       .replace(/\* /g, '• ')
+                      .trim() // Supprimer les espaces en début et fin
                   }}
                 />
               </div>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* RSI Overview - Toutes les paires majeures */}
+      <Card className="glass-card border-primary/10">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart className="w-5 h-5 text-primary" />
+            Indicateurs RSI - Paires Majeures
+            {rsiLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {rsiLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <span className="ml-2 text-sm text-muted-foreground">Chargement des données RSI...</span>
+            </div>
+          ) : allRSIData.length === 0 ? (
+            <div className="text-center py-8">
+              <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">Aucune donnée RSI disponible</p>
+            </div>
+          ) : (
+            <>
+              {/* Version mobile avec scroll horizontal */}
+              <div className="lg:hidden">
+                <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
+                  {allRSIData.map((pair) => {
+                    // Définir les couleurs selon le statut RSI
+                    const getRSIColor = (status: string, rsi: number) => {
+                      switch (status) {
+                        case 'overbought':
+                          return {
+                            bg: 'bg-destructive/10',
+                            border: 'border-destructive/30',
+                            text: 'text-destructive',
+                            badge: 'bg-destructive/20 text-destructive'
+                          };
+                        case 'oversold':
+                          return {
+                            bg: 'bg-success/10',
+                            border: 'border-success/30',
+                            text: 'text-success',
+                            badge: 'bg-success/20 text-success'
+                          };
+                        default:
+                          return {
+                            bg: 'bg-muted/10',
+                            border: 'border-muted/30',
+                            text: 'text-muted-foreground',
+                            badge: 'bg-muted/20 text-muted-foreground'
+                          };
+                      }
+                    };
+
+                    const colors = getRSIColor(pair.status, pair.rsi);
+                    const statusText = pair.status === 'overbought' ? 'Suracheté' : 
+                                      pair.status === 'oversold' ? 'Survente' : 'Neutre';
+
+                    return (
+                      <div
+                        key={pair.pair}
+                        className={`min-w-[280px] p-4 rounded-xl ${colors.bg} border ${colors.border} hover:shadow-lg transition-all duration-300`}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <Badge variant="outline" className="font-mono font-bold">
+                            {pair.pair}
+                          </Badge>
+                          <Badge className={colors.badge}>
+                            {statusText}
+                          </Badge>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">RSI</span>
+                            <span className={`text-2xl font-bold ${colors.text}`}>
+                              {pair.rsi.toFixed(1)}
+                            </span>
+                          </div>
+                          <div className="w-full bg-muted/20 rounded-full h-2">
+                            <div 
+                              className={`h-2 rounded-full transition-all duration-500 ${
+                                pair.status === 'overbought' ? 'bg-destructive' :
+                                pair.status === 'oversold' ? 'bg-success' : 'bg-muted-foreground'
+                              }`}
+                              style={{ width: `${Math.min(100, Math.max(0, pair.rsi))}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>0</span>
+                            <span>30</span>
+                            <span>50</span>
+                            <span>70</span>
+                            <span>100</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Version desktop avec grille normale */}
+              <div className="hidden lg:grid lg:grid-cols-4 gap-4">
+                {allRSIData.map((pair) => {
+                  // Définir les couleurs selon le statut RSI
+                  const getRSIColor = (status: string, rsi: number) => {
+                    switch (status) {
+                      case 'overbought':
+                        return {
+                          bg: 'bg-destructive/10',
+                          border: 'border-destructive/30',
+                          text: 'text-destructive',
+                          badge: 'bg-destructive/20 text-destructive'
+                        };
+                      case 'oversold':
+                        return {
+                          bg: 'bg-success/10',
+                          border: 'border-success/30',
+                          text: 'text-success',
+                          badge: 'bg-success/20 text-success'
+                        };
+                      default:
+                        return {
+                          bg: 'bg-muted/10',
+                          border: 'border-muted/30',
+                          text: 'text-muted-foreground',
+                          badge: 'bg-muted/20 text-muted-foreground'
+                        };
+                    }
+                  };
+
+                  const colors = getRSIColor(pair.status, pair.rsi);
+                  const statusText = pair.status === 'overbought' ? 'Suracheté' : 
+                                    pair.status === 'oversold' ? 'Survente' : 'Neutre';
+
+                  return (
+                    <div
+                      key={pair.pair}
+                      className={`p-4 rounded-xl ${colors.bg} border ${colors.border} hover:shadow-lg transition-all duration-300`}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <Badge variant="outline" className="font-mono font-bold">
+                          {pair.pair}
+                        </Badge>
+                        <Badge className={colors.badge}>
+                          {statusText}
+                        </Badge>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">RSI</span>
+                          <span className={`text-2xl font-bold ${colors.text}`}>
+                            {pair.rsi.toFixed(1)}
+                          </span>
+                        </div>
+                        <div className="w-full bg-muted/20 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full transition-all duration-500 ${
+                              pair.status === 'overbought' ? 'bg-destructive' :
+                              pair.status === 'oversold' ? 'bg-success' : 'bg-muted-foreground'
+                            }`}
+                            style={{ width: `${Math.min(100, Math.max(0, pair.rsi))}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>0</span>
+                          <span>30</span>
+                          <span>50</span>
+                          <span>70</span>
+                          <span>100</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -590,59 +888,6 @@ export function Dashboard() {
         </Card>
       </div>
 
-      {/* Watchlist */}
-      <Card className="glass-card border-primary/10">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-primary" />
-            Watchlist
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {watchlist.map((stock) => (
-              <div
-                key={stock.symbol}
-                className="p-4 rounded-xl bg-secondary/30 border border-border/50 hover:bg-secondary/50 transition-all duration-300 hover:shadow-lg cursor-pointer"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <Badge variant="outline" className="font-mono font-bold">
-                        {stock.symbol}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {stock.name}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold text-lg">
-                    ${stock.price.toFixed(2)}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    {stock.change >= 0 ? (
-                      <TrendingUp className="w-3 h-3 text-success" />
-                    ) : (
-                      <TrendingDown className="w-3 h-3 text-destructive" />
-                    )}
-                    <span
-                      className={`text-xs font-medium ${
-                        stock.change >= 0 ? "text-success" : "text-destructive"
-                      }`}
-                    >
-                      {stock.change >= 0 ? "+" : ""}${Math.abs(stock.change).toFixed(2)} (
-                      {stock.changePercent >= 0 ? "+" : ""}
-                      {stock.changePercent.toFixed(2)}%)
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
