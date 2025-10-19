@@ -1,7 +1,7 @@
 // Service pour le suivi de l'utilisation des tokens
 import { createClient } from '@supabase/supabase-js';
 
-// Créer un client Supabase avec des types génériques pour contourner les problèmes de typage
+// Créer un client Supabase générique pour contourner les problèmes de typage
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -32,14 +32,20 @@ class TokenUsageService {
    */
   async getTokenUsageEntry(userEmail: string): Promise<TokenUsageEntry | null> {
     try {
+      console.log('🔍 Récupération des données pour:', userEmail);
+      
       const { data, error } = await supabase
-        .from('token_usage')
+        .from('token_usage' as any)
         .select('*')
         .eq('user', userEmail)
         .single();
 
+      console.log('📊 Données récupérées:', data);
+      console.log('❌ Erreur:', error);
+
       if (error) {
         if (error.code === 'PGRST116') {
+          console.log('ℹ️ Aucune donnée trouvée pour cet utilisateur');
           return null; // Aucune donnée trouvée
         }
         throw error;
@@ -56,9 +62,12 @@ class TokenUsageService {
    * Calcule les statistiques d'utilisation des tokens pour un utilisateur
    */
   async getTokenUsageStats(userEmail: string): Promise<TokenUsageStats> {
+    console.log('📈 Calcul des statistiques pour:', userEmail);
+    
     const entry = await this.getTokenUsageEntry(userEmail);
     
     if (!entry) {
+      console.log('⚠️ Aucune entrée trouvée, retour de statistiques par défaut');
       return {
         totalInputTokens: 0,
         totalOutputTokens: 0,
@@ -73,6 +82,13 @@ class TokenUsageService {
     const totalOutputTokens = entry.output ? parseInt(entry.output) : 0;
     const totalTokens = totalInputTokens + totalOutputTokens;
     const usagePercentage = (totalTokens / this.MAX_TOKENS) * 100;
+    
+    console.log('📊 Statistiques calculées:', {
+      totalInputTokens,
+      totalOutputTokens,
+      totalTokens,
+      usagePercentage
+    });
     
     return {
       totalInputTokens,
