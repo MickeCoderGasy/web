@@ -9,6 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Settings, TrendingUp, Clock, Target, AlertCircle } from 'lucide-react';
 import { ContextSettings, defaultContextSettings } from '@/config/grok-config';
 import analysisHistoryService, { AnalysisHistoryItem } from '@/services/analysisHistoryService';
+import { useAuth } from '@/contexts/AuthContext';
 import { RealDataIndicator } from '@/components/RealDataIndicator';
 import { OHLCStatusIndicator } from '@/components/OHLCStatusIndicator';
 import { OHLCNoDataMessage } from '@/components/OHLCNoDataMessage';
@@ -23,21 +24,43 @@ interface ContextSettingsProps {
 }
 
 export function ContextSettingsComponent({ settings, onSettingsChange, onSave }: ContextSettingsProps) {
+  const { user } = useAuth();
   const [isExpanded, setIsExpanded] = useState(false);
   const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistoryItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
 
+  // Initialiser l'utilisateur dans le service d'historique
+  useEffect(() => {
+    if (user?.email) {
+      analysisHistoryService.setCurrentUser(user.email);
+      console.log('✅ [ContextSettings] Utilisateur initialisé:', user.email);
+    } else {
+      analysisHistoryService.setCurrentUser(null);
+      console.log('⚠️ [ContextSettings] Aucun utilisateur connecté');
+    }
+  }, [user?.email]);
+
   // Charger l'historique des analyses
   useEffect(() => {
     const loadAnalysisHistory = async () => {
+      // Vérifier que l'utilisateur est connecté avant de charger l'historique
+      if (!user?.email) {
+        console.log('⚠️ [ContextSettings] Utilisateur non connecté, impossible de charger l\'historique');
+        setIsConnected(false);
+        setIsLoadingHistory(false);
+        return;
+      }
+
       setIsLoadingHistory(true);
       try {
+        console.log('🔄 [ContextSettings] Chargement de l\'historique pour:', user.email);
         const history = await analysisHistoryService.getRecentAnalyses(settings.maxHistoryItems);
         setAnalysisHistory(history);
         setIsConnected(history.length > 0);
+        console.log('✅ [ContextSettings] Historique chargé:', history.length, 'analyses');
       } catch (error) {
-        console.error('Erreur lors du chargement de l\'historique:', error);
+        console.error('❌ [ContextSettings] Erreur lors du chargement de l\'historique:', error);
         setIsConnected(false);
       } finally {
         setIsLoadingHistory(false);
@@ -45,7 +68,7 @@ export function ContextSettingsComponent({ settings, onSettingsChange, onSave }:
     };
 
     loadAnalysisHistory();
-  }, [settings.maxHistoryItems]);
+  }, [settings.maxHistoryItems, user?.email]);
 
   const handleSettingChange = (key: keyof ContextSettings, value: any) => {
     onSettingsChange({

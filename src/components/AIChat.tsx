@@ -28,7 +28,7 @@ const initialMessages: Message[] = [
     id: "1",
     role: "assistant",
     content:
-      "Bonjour! Je suis votre assistant de trading IA. Posez-moi une question sur un symbole boursier (ex: AAPL, TSLA, EUR/USD) pour obtenir une analyse détaillée, ou discutez avec moi de stratégies de trading!",
+      "Bonjour ! Je suis votre assistant de trading IA spécialisé. Je peux analyser vos signaux de trading, expliquer les stratégies, et vous aider à comprendre les marchés financiers. Que souhaitez-vous savoir ?",
   },
 ];
 
@@ -62,7 +62,27 @@ export function AIChat() {
         throw new Error('Connexion Supabase échouée');
       }
       
-      const title = "Nouvelle conversation";
+      // Générer un titre basé sur la paire et l'heure
+      let title = "Nouvelle conversation";
+      if (contextSettings.selectedAnalysisId) {
+        try {
+          // Récupérer l'analyse sélectionnée pour obtenir la paire
+          const analysis = await analysisHistoryService.getAnalysisById(contextSettings.selectedAnalysisId);
+          if (analysis) {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('fr-FR', { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            });
+            title = `${analysis.pair} - ${timeStr}`;
+            console.log('📝 [AIChat] Titre généré avec paire et heure:', title);
+          }
+        } catch (error) {
+          console.warn('⚠️ [AIChat] Impossible de récupérer l\'analyse pour le titre:', error);
+          // Utiliser le titre par défaut si erreur
+        }
+      }
+      
       // Créer la session avec le contexte actuellement sélectionné
       const session = await chatHistoryServiceSupabase.createChatSession(
         title,
@@ -75,6 +95,7 @@ export function AIChat() {
       
       // Log pour debug
       console.log('🆕 [AIChat] Nouvelle session créée avec contexte:', contextSettings.selectedAnalysisId || 'aucun');
+      console.log('🆕 [AIChat] Titre de la session:', title);
       console.log('🆕 [AIChat] ID de la session créée:', session.id);
       
       // Forcer le rechargement de l'historique
@@ -82,7 +103,7 @@ export function AIChat() {
       
       toast({
         title: "Nouvelle session",
-        description: `Nouvelle conversation créée${contextSettings.selectedAnalysisId ? ' avec le contexte actuel' : ''}`,
+        description: `Conversation "${title}" créée${contextSettings.selectedAnalysisId ? ' avec le contexte actuel' : ''}`,
       });
     } catch (error) {
       console.error('❌ [AIChat] Erreur lors de la création de la session:', error);

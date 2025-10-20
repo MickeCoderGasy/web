@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { 
   Settings as SettingsIcon, 
   Info,
@@ -15,6 +17,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import tokenUsageService from '@/services/tokenUsageService';
+import { changePassword, sendPasswordResetEmail } from '@/services/authService';
+import { useToast } from '@/hooks/use-toast';
 
 // Interface pour les statistiques de tokens
 interface TokenUsageStats {
@@ -30,6 +34,7 @@ interface TokenUsageStats {
 
 export function Settings() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [tokenStats, setTokenStats] = useState<TokenUsageStats>({
     totalInputTokens: 0,
     totalOutputTokens: 0,
@@ -40,6 +45,11 @@ export function Settings() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   // Charger les statistiques
   useEffect(() => {
@@ -258,6 +268,85 @@ export function Settings() {
               <div>
                 <span className="text-muted-foreground">Statut:</span>
                 <Badge variant="outline" className="ml-2">Actif</Badge>
+              </div>
+            </div>
+
+            {/* Changement de mot de passe */}
+            <div className="pt-4 border-t">
+              <h3 className="font-semibold mb-3">Changer le mot de passe</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-xs">Mot de passe actuel</Label>
+                  <Input
+                    type="password"
+                    placeholder="••••••••"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Nouveau mot de passe</Label>
+                  <Input
+                    type="password"
+                    placeholder="••••••••"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Confirmer le mot de passe</Label>
+                  <Input
+                    type="password"
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <Button
+                  disabled={isChangingPassword}
+                  onClick={async () => {
+                    try {
+                      if (!user?.email) throw new Error('Utilisateur non connecté');
+                      if (!currentPassword || !newPassword) throw new Error('Champs requis manquants');
+                      if (newPassword !== confirmPassword) throw new Error('Les mots de passe ne correspondent pas');
+                      setIsChangingPassword(true);
+                      await changePassword(user.email, currentPassword, newPassword);
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                      toast({ title: 'Mot de passe modifié', description: 'Votre mot de passe a été mis à jour.' });
+                    } catch (err: any) {
+                      toast({ title: 'Erreur', description: err.message || 'Impossible de changer le mot de passe', variant: 'destructive' });
+                    } finally {
+                      setIsChangingPassword(false);
+                    }
+                  }}
+                  size="sm"
+                >
+                  {isChangingPassword ? 'Modification…' : 'Modifier le mot de passe'}
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={isSendingReset}
+                  onClick={async () => {
+                    try {
+                      if (!user?.email) throw new Error('Utilisateur non connecté');
+                      setIsSendingReset(true);
+                      const redirectTo = `${window.location.origin}/reset-password`;
+                      await sendPasswordResetEmail(user.email, redirectTo);
+                      toast({ title: 'Email envoyé', description: 'Vérifiez votre boîte mail pour réinitialiser votre mot de passe.' });
+                    } catch (err: any) {
+                      toast({ title: 'Erreur', description: err.message || 'Impossible d\'envoyer l\'email', variant: 'destructive' });
+                    } finally {
+                      setIsSendingReset(false);
+                    }
+                  }}
+                  size="sm"
+                >
+                  {isSendingReset ? 'Envoi…' : 'Mot de passe oublié ?'}
+                </Button>
               </div>
             </div>
           </div>

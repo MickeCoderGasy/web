@@ -139,27 +139,39 @@ class OHLCService {
     const analysisTimestamp = new Date(analysisDateTime).getTime();
     console.log('🕐 Timestamp d\'analyse:', analysisTimestamp);
 
-    // Filtrer les données postérieures à l'analyse et timeframe M1
+    // Calculer la fenêtre de temps : 5 minutes avant l'analyse jusqu'aux plus récentes
+    const fiveMinutesBeforeAnalysis = analysisTimestamp - (5 * 60 * 1000); // 5 minutes en millisecondes
+    console.log('🕐 Fenêtre de temps:', {
+      début: new Date(fiveMinutesBeforeAnalysis).toISOString(),
+      analyse: new Date(analysisTimestamp).toISOString(),
+      fin: 'Plus récentes'
+    });
+
+    // Filtrer les données dans la fenêtre de temps et timeframe M1
     const filteredData = ohlcDataArray.filter(item => {
       const itemTimestamp = new Date(item.date_utc || item.timestamp || item.date || item.time || item.datetime).getTime();
       // Corriger la récupération du timeframe - utiliser la bonne propriété
       const timeframe = item.timeframe || item.tf || item.interval || item.t || 'N/A';
-      const isAfterAnalysis = itemTimestamp > analysisTimestamp;
+      
+      // Nouvelle logique : données de 5 minutes avant l'analyse jusqu'aux plus récentes
+      const isInTimeWindow = itemTimestamp >= fiveMinutesBeforeAnalysis;
       const isM1 = timeframe === 'M1' || timeframe === '1m' || timeframe === '1min';
       
-      console.log('🔍 Filtrage:', {
-        itemTimestamp,
-        isAfterAnalysis,
+      console.log('🔍 Filtrage (nouvelle logique):', {
+        itemTimestamp: new Date(itemTimestamp).toISOString(),
+        fiveMinutesBefore: new Date(fiveMinutesBeforeAnalysis).toISOString(),
+        analysisTime: new Date(analysisTimestamp).toISOString(),
+        isInTimeWindow,
         timeframe,
         isM1,
-        keep: isAfterAnalysis && isM1,
+        keep: isInTimeWindow && isM1,
         // Ajouter plus de détails pour le debug
         rawTimeframe: item.timeframe,
         rawT: item.t,
         rawTf: item.tf
       });
       
-      return isAfterAnalysis && isM1;
+      return isInTimeWindow && isM1;
     });
 
     console.log('📊 Données filtrées:', filteredData.length, 'sur', ohlcDataArray.length);
@@ -169,8 +181,8 @@ class OHLCService {
     });
 
     if (filteredData.length === 0) {
-      console.warn('⚠️ Aucune donnée OHLC M1 postérieure à l\'analyse trouvée');
-      return '=== DONNÉES OHLC ===\nAucune donnée OHLC M1 postérieure à l\'analyse disponible\n===============================';
+      console.warn('⚠️ Aucune donnée OHLC M1 dans la fenêtre de temps trouvée');
+      return '=== DONNÉES OHLC ===\nAucune donnée OHLC M1 dans la fenêtre de temps (5 minutes avant l\'analyse jusqu\'aux plus récentes) disponible\n===============================';
     }
 
     // Trier par timestamp (plus récent en premier)
@@ -181,9 +193,10 @@ class OHLCService {
     });
 
     // Formater toutes les données sélectionnées
-    let context = `=== DONNÉES OHLC M1 POSTÉRIEURES À L'ANALYSE ===\n`;
+    let context = `=== DONNÉES OHLC M1 (5 MINUTES AVANT L'ANALYSE JUSQU'AUX PLUS RÉCENTES) ===\n`;
     context += `Nombre de bougies M1: ${filteredData.length}\n`;
-    context += `Période: ${filteredData.length > 0 ? formatForGrok(filteredData[filteredData.length - 1].date_utc || filteredData[filteredData.length - 1].timestamp) : 'N/A'} à ${filteredData.length > 0 ? formatForGrok(filteredData[0].date_utc || filteredData[0].timestamp) : 'N/A'}\n\n`;
+    context += `Période: ${filteredData.length > 0 ? formatForGrok(filteredData[filteredData.length - 1].date_utc || filteredData[filteredData.length - 1].timestamp) : 'N/A'} à ${filteredData.length > 0 ? formatForGrok(filteredData[0].date_utc || filteredData[0].timestamp) : 'N/A'}\n`;
+    context += `Fenêtre de temps: 5 minutes avant l'analyse (${formatForGrok(new Date(fiveMinutesBeforeAnalysis).toISOString())}) jusqu'aux plus récentes\n\n`;
 
     filteredData.forEach((item, index) => {
       const pair = item.ticker || item.pair || item.symbol || item.instrument || 'N/A';

@@ -158,13 +158,23 @@ class AnalysisHistoryService {
   // Récupérer les analyses récentes (dernières N)
   async getRecentAnalyses(limit: number = 20): Promise<AnalysisHistoryItem[]> {
     try {
+      // Vérifier que l'utilisateur est connecté
+      if (!this.currentUserId) {
+        console.warn('⚠️ [AnalysisHistoryService] Aucun utilisateur connecté, impossible de récupérer les analyses');
+        return [];
+      }
+
+      console.log('🔄 [AnalysisHistoryService] Récupération des analyses récentes pour:', this.currentUserId);
       const userId = this.ensureUserAuthenticated();
       const signalsLogs = await SignalsLogService.fetchSignalsLogsByUser(userId);
-      return signalsLogs
+      const recentAnalyses = signalsLogs
         .slice(0, limit)
         .map(entry => this.convertToAnalysisHistoryItem(entry));
+      
+      console.log('✅ [AnalysisHistoryService] Analyses récentes récupérées:', recentAnalyses.length);
+      return recentAnalyses;
     } catch (error) {
-      console.error('Erreur lors de la récupération des analyses récentes:', error);
+      console.error('❌ [AnalysisHistoryService] Erreur lors de la récupération des analyses récentes:', error);
       return [];
     }
   }
