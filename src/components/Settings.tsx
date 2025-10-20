@@ -19,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import tokenUsageService from '@/services/tokenUsageService';
 import { changePassword, sendPasswordResetEmail } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
+import subscriptionService from '@/services/subscriptionService';
 
 // Interface pour les statistiques de tokens
 interface TokenUsageStats {
@@ -50,6 +51,12 @@ export function Settings() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  // Abonnement
+  const [plans, setPlans] = useState<any[]>([]);
+  const [mySub, setMySub] = useState<any | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
 
   // Charger les statistiques
   useEffect(() => {
@@ -84,6 +91,25 @@ export function Settings() {
       setLoading(false);
     }
   };
+
+  // Charger les plans et l'abonnement utilisateur
+  useEffect(() => {
+    const loadPlans = async () => {
+      try {
+        setPlanLoading(true);
+        setPlanError(null);
+        const p = await subscriptionService.getPlans();
+        const s = await subscriptionService.getMySubscription();
+        setPlans(p);
+        setMySub(s);
+      } catch (e: any) {
+        setPlanError(e.message || 'Erreur lors du chargement des plans');
+      } finally {
+        setPlanLoading(false);
+      }
+    };
+    if (user?.email) loadPlans();
+  }, [user?.email]);
 
   // Formater les nombres
   const formatNumber = (num: number): string => {
@@ -152,40 +178,62 @@ export function Settings() {
         </div>
       </div>
 
-      {/* Section Usage - Statistiques des Tokens */}
+      {/* Section Plan et Quota */}
       <Card className="glass-card border-primary/10">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-primary" />
-            Utilisation des Tokens
-            <Badge variant="outline" className="ml-auto">
-              {tokenStats.usagePercentage.toFixed(1)}% utilisé
-            </Badge>
+            Plan et Quota
+            {mySub?.plan_name && (
+              <Badge variant="outline" className="ml-2">{mySub.plan_name}</Badge>
+            )}
+            {mySub && (
+              <Badge variant="outline" className="ml-auto">
+                {Math.min(
+                  mySub.token_per_month > 0 
+                    ? (tokenStats.totalTokens / mySub.token_per_month) * 100 
+                    : 0,
+                  100
+                ).toFixed(1)}% utilisé
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Barre de progression principale */}
+          {/* Barre de progression principale (quota mensuel) */}
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-sm font-medium">Utilisation totale</span>
-              <span className="text-sm text-muted-foreground">
-                {formatNumber(tokenStats.totalTokens)} / {formatNumber(tokenStats.maxTokens)} tokens
-              </span>
+              <span className="text-sm font-medium">Quota mensuel</span>
+              {mySub ? (
+                <span className="text-sm text-muted-foreground">
+                  {tokenStats.totalTokens.toLocaleString()} / {mySub.token_per_month.toLocaleString()} tokens
+                </span>
+              ) : (
+                <span className="text-sm text-muted-foreground">—</span>
+              )}
             </div>
             <div className="relative">
-              <Progress 
-                value={tokenStats.usagePercentage} 
+              <Progress
+                value={mySub && mySub.token_per_month > 0 
+                  ? (tokenStats.totalTokens / mySub.token_per_month) * 100 
+                  : 0}
                 className="h-3"
               />
               <div 
-                className={`absolute top-0 left-0 h-3 rounded-full transition-all duration-500 ${getProgressColor(tokenStats.usagePercentage)}`}
-                style={{ width: `${tokenStats.usagePercentage}%` }}
+                className={`absolute top-0 left-0 h-3 rounded-full transition-all duration-500 ${getProgressColor(
+                  mySub && mySub.token_per_month > 0 
+                    ? (tokenStats.totalTokens / mySub.token_per_month) * 100 
+                    : 0
+                )}`}
+                style={{ width: `${mySub && mySub.token_per_month > 0 
+                  ? (tokenStats.totalTokens / mySub.token_per_month) * 100 
+                  : 0}%` }}
               />
             </div>
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>0</span>
-              <span>2.5M</span>
-              <span>5M</span>
+              <span>{mySub ? Math.round(mySub.token_per_month / 2).toLocaleString() : '—'}</span>
+              <span>{mySub ? mySub.token_per_month.toLocaleString() : '—'}</span>
             </div>
           </div>
 
@@ -194,10 +242,10 @@ export function Settings() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-blue-500" />
-                <span className="text-sm font-medium">Tokens d'entrée</span>
+                <span className="text-sm font-medium">Plan actuel</span>
               </div>
               <div className="text-2xl font-bold text-blue-600">
-                {formatNumber(tokenStats.totalInputTokens)}
+                {mySub?.plan_name || '—'}
               </div>
              
             </div>
@@ -205,10 +253,10 @@ export function Settings() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-green-500" />
-                <span className="text-sm font-medium">Tokens de sortie</span>
+                <span className="text-sm font-medium">Restant ce mois-ci</span>
               </div>
               <div className="text-2xl font-bold text-green-600">
-                {formatNumber(tokenStats.totalOutputTokens)}
+                {mySub ? Math.max(mySub.token_per_month - tokenStats.totalTokens, 0).toLocaleString() : '—'}
               </div>
             
             </div>
@@ -219,22 +267,91 @@ export function Settings() {
           <div className="bg-muted/30 rounded-lg p-4 space-y-2">
             <div className="flex items-center gap-2">
               <Info className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium">Informations sur l'utilisation</span>
+              <span className="text-sm font-medium">Informations sur l'abonnement</span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-1 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Dernière mise à jour:</span>
-                <span className="ml-2 font-medium">{formatDate(tokenStats.lastUpdated)}</span>
+              <div className="grid grid-cols-1 md:grid-cols-1 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Cycle courant:</span>
+                  <span className="ml-2 font-medium">
+                    {(() => {
+                      if (!mySub) return '—';
+                      const start = new Date(mySub.started_at || mySub.month_cycle_start);
+                      const end = new Date(start);
+                      end.setDate(end.getDate() + 30);
+                      return `${start.toLocaleDateString('fr-FR')} → ${end.toLocaleDateString('fr-FR')} (début d'abonnement + 30 jours)`;
+                    })()}
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="text-muted-foreground">Note:</span>
-                <span className="ml-2 font-medium">5M tokens ≈ 94 requêtes d'analyse (53K tokens par requête)</span>
-              </div>
-            </div>
           </div>
         </CardContent>
       </Card>
 
+
+      {/* Section Abonnement */}
+      <Card className="glass-card border-primary/10">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Abonnement
+            {mySub?.plan_code && (
+              <Badge variant="outline" className="ml-2">{mySub.plan_name}</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {planLoading ? (
+            <div className="text-sm text-muted-foreground">Chargement des plans…</div>
+          ) : planError ? (
+            <div className="text-sm text-destructive">{planError}</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {plans.map((p) => {
+                const isCurrent = mySub?.plan_code === p.code;
+                return (
+                  <div key={p.code} className={`p-4 rounded-lg border ${isCurrent ? 'border-primary' : 'border-border/50'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold">{p.name}</div>
+                      <Badge variant={isCurrent ? 'default' : 'outline'}>
+                        {p.token_per_month.toLocaleString()} tokens / mois
+                      </Badge>
+                    </div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      {p.code === 'free'
+                        ? '0 $ / mois — Découverte / test'
+                        : p.code === 'starter'
+                        ? '14,99 $ / mois — Traders occasionnels'
+                        : '49 $ / mois — Traders actifs / réguliers'}
+                    </div>
+                    <Button
+                      className="mt-3 w-full"
+                      variant={isCurrent ? 'outline' : 'default'}
+                      disabled={isCurrent}
+                      onClick={async () => {
+                        try {
+                          await subscriptionService.changePlan(p.code);
+                          const s = await subscriptionService.getMySubscription();
+                          setMySub(s);
+                          toast({ title: 'Abonnement mis à jour', description: `Plan ${p.name} activé.` });
+                        } catch (e: any) {
+                          setPlanError(e.message || 'Impossible de changer de plan');
+                        }
+                      }}
+                    >
+                      {isCurrent ? 'Plan actuel' : 'Choisir ce plan'}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {mySub && (
+            <div className="text-xs text-muted-foreground">
+              Usage: {mySub.current_month_analyses} / {mySub.token_per_month.toLocaleString()} tokens ce mois-ci
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Section Utilisateur */}
       <Card className="glass-card border-primary/10">

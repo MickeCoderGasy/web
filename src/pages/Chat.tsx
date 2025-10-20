@@ -10,6 +10,7 @@ import { WorkflowStatusNotification } from "@/components/WorkflowStatusNotificat
 import { AnalysisStatusIndicator } from "@/components/AnalysisStatusIndicator";
 import { AnalysisTimer } from "@/components/AnalysisTimer";
 import { useToast } from "@/hooks/use-toast";
+import subscriptionService from "@/services/subscriptionService";
 import { useAnalysisProgress } from "@/hooks/useAnalysisProgress";
 import { useMobileState } from "@/hooks/useMobileState";
 import maestroService, { AnalysisConfig as MaestroConfig, AnalysisStep, WorkflowJob } from "@/services/maestroService";
@@ -119,6 +120,17 @@ const Chat = () => {
     console.log('🚀 Starting analysis with config:', config);
     
     try {
+      // Vérifier quota d'abonnement avant de démarrer
+      const quota = await subscriptionService.hasRemainingTokens();
+      if (!quota.ok) {
+        toast({
+          title: "Quota atteint",
+          description: `Votre plan (${quota.sub.plan_name}) a atteint la limite mensuelle (${quota.total.toLocaleString()} tokens). Changez de plan dans Paramètres > Abonnement.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
       updateState({
         isAnalyzing: true,
         analysisResult: null,
