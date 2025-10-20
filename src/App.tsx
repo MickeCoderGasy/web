@@ -9,6 +9,10 @@ import Index from "./pages/Index";
 import Chat from "./pages/Chat";
 import History from "./pages/History";
 import SettingsPage from "./pages/SettingsPage";
+import Checkout from "./pages/Checkout";
+import TestCheckout from "./pages/TestCheckout";
+import PaymentCallback from "./pages/PaymentCallback";
+import AdminPayments from "./pages/AdminPayments";
 import ResetPassword from "./pages/ResetPassword";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -92,6 +96,38 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <SettingsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/checkout"
+              element={
+                <ProtectedRoute>
+                  <Checkout />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/test-checkout"
+              element={
+                <ProtectedRoute>
+                  <TestCheckout />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/payment-callback"
+              element={
+                <ProtectedRoute>
+                  <PaymentCallback />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin-payments"
+              element={
+                <ProtectedRoute>
+                  <AdminPayments />
                 </ProtectedRoute>
               }
             />

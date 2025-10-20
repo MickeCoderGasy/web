@@ -307,27 +307,59 @@ export function Settings() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {plans.map((p) => {
                 const isCurrent = mySub?.plan_code === p.code;
+                const isFreePlan = p.code === 'free';
+                const hasPaidPlan = mySub?.plan_code === 'starter' || mySub?.plan_code === 'pro';
+                const isDisabled = isFreePlan && hasPaidPlan && !isCurrent;
+                
                 return (
-                  <div key={p.code} className={`p-4 rounded-lg border ${isCurrent ? 'border-primary' : 'border-border/50'}`}>
+                  <div 
+                    key={p.code} 
+                    className={`p-4 rounded-lg border ${
+                      isCurrent 
+                        ? 'border-primary' 
+                        : isDisabled 
+                        ? 'border-muted/30 bg-muted/20' 
+                        : 'border-border/50'
+                    } ${isDisabled ? 'opacity-60' : ''}`}
+                  >
                     <div className="flex items-center justify-between">
-                      <div className="font-semibold">{p.name}</div>
-                      <Badge variant={isCurrent ? 'default' : 'outline'}>
+                      <div className={`font-semibold ${isDisabled ? 'text-muted-foreground' : ''}`}>
+                        {p.name}
+                        {isDisabled && (
+                          <span className="ml-2 text-xs text-muted-foreground">(Non disponible)</span>
+                        )}
+                      </div>
+                      <Badge variant={isCurrent ? 'default' : isDisabled ? 'secondary' : 'outline'}>
                         {p.token_per_month.toLocaleString()} tokens / mois
                       </Badge>
                     </div>
-                    <div className="mt-2 text-sm text-muted-foreground">
+                    <div className={`mt-2 text-sm ${isDisabled ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
                       {p.code === 'free'
                         ? '0 $ / mois — Découverte / test'
                         : p.code === 'starter'
                         ? '14,99 $ / mois — Traders occasionnels'
                         : '49 $ / mois — Traders actifs / réguliers'}
+                      {isDisabled && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Vous avez déjà un plan payant actif
+                        </div>
+                      )}
                     </div>
                     <Button
                       className="mt-3 w-full"
-                      variant={isCurrent ? 'outline' : 'default'}
-                      disabled={isCurrent}
+                      variant={isCurrent ? 'outline' : isDisabled ? 'secondary' : 'default'}
+                      disabled={isCurrent || isDisabled}
                       onClick={async () => {
+                        if (isDisabled) return;
+                        
                         try {
+                          // Si c'est un plan payant, rediriger vers checkout
+                          if (p.monthly_price_dollar > 0) {
+                            window.location.href = `/checkout?plan=${p.code}`;
+                            return;
+                          }
+                          
+                          // Pour le plan gratuit, changer directement
                           await subscriptionService.changePlan(p.code);
                           const s = await subscriptionService.getMySubscription();
                           setMySub(s);
@@ -337,7 +369,14 @@ export function Settings() {
                         }
                       }}
                     >
-                      {isCurrent ? 'Plan actuel' : 'Choisir ce plan'}
+                      {isCurrent 
+                        ? 'Plan actuel' 
+                        : isDisabled 
+                        ? 'Non disponible' 
+                        : p.monthly_price_dollar > 0 
+                        ? 'Payer maintenant' 
+                        : 'Choisir ce plan'
+                      }
                     </Button>
                   </div>
                 );
